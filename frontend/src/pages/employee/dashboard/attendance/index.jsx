@@ -297,6 +297,14 @@ const Attendance = () => {
       setStatus(attendance.currentStatus || 'No status available');
       setCheckInTime(attendance.checkInTime || null);
       setCheckOutTime(attendance.checkOutTime || null);
+      setCheckInLocation({
+        latitude: attendance.checkInLocation?.latitude || null,
+        longitude: attendance.checkInLocation?.longitude || null,
+      });
+      setCheckOutLocation({
+        latitude: attendance.checkOutLocation?.latitude || null,
+        longitude: attendance.checkOutLocation?.longitude || null,
+      });
       setTotalRecessDuration(
         attendance.totalRecessDuration
           ? `${Math.floor(attendance.totalRecessDuration / 60000)} minutes`

@@ -1,14 +1,10 @@
 import Attendance from '../models/attendanceSchema.js';
 import Employee from '../models/employeeSchema.js';
 import { getStartOfIstDay, getEndOfIstDay } from './timezoneUtils.js';
+import { DEFAULT_CHECK_IN_TIME, getTimeOnDay } from './attendanceTimeUtils.js';
 
-const getDefaultCheckInTime = (dayStart, predefinedCheckInTime = '10:00') => {
-  const [hours, minutes] = String(predefinedCheckInTime || '10:00')
-    .split(':')
-    .map((value) => Number(value || 0));
-
-  return new Date(dayStart.getTime() + (hours * 60 + minutes) * 60 * 1000);
-};
+const getDefaultCheckInTime = (dayStart, predefinedCheckInTime = DEFAULT_CHECK_IN_TIME) =>
+  getTimeOnDay(dayStart, predefinedCheckInTime, DEFAULT_CHECK_IN_TIME);
 
 const buildIstDayRange = (startDate, endDate) => {
   const start = getStartOfIstDay(startDate);

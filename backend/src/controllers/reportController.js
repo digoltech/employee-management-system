@@ -5,6 +5,11 @@ import AdminAttendanceSettings from '../models/adminAttendanceSettingsSchema.js'
 import { recomputePayrollForAttendanceChange } from './payrollController.js';
 import { getIstDayKey, getIstDayOfWeek, getIstDayStartFromParts } from '../utils/timezoneUtils.js';
 import { getEmployeesOnHoliday } from '../services/holidayPayrollService.js';
+import {
+  DEFAULT_CHECK_IN_TIME,
+  getFullDayCheckoutTime,
+  getTimeOnDay,
+} from '../utils/attendanceTimeUtils.js';
 
 const parseYmd = (value) => {
   const [year, month, day] = String(value || '')
@@ -19,12 +24,8 @@ const toYmd = (date) => {
 };
 const weekdayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-const getPredefinedCheckInForDay = (dayStart, predefinedCheckInTime = '10:00') => {
-  const [hours, minutes] = String(predefinedCheckInTime || '10:00')
-    .split(':')
-    .map((v) => Number(v || 0));
-  return new Date(dayStart.getTime() + (hours * 60 + minutes) * 60 * 1000);
-};
+const getPredefinedCheckInForDay = (dayStart, predefinedCheckInTime = DEFAULT_CHECK_IN_TIME) =>
+  getTimeOnDay(dayStart, predefinedCheckInTime, DEFAULT_CHECK_IN_TIME);
 
 // Calculate status based on actual working hours and attendance settings
 const calculateStatusFromWorkingHours = (attendance, settings) => {
@@ -266,6 +267,7 @@ export const updateAttendanceMasterStatus = async (req, res) => {
 
     const employee = await Employee.findById(employeeId);
     if (!employee) return res.status(404).json({ message: 'Employee not found' });
+    const settings = await AdminAttendanceSettings.findOne().lean();
 
     let attendance = await Attendance.findOne({
       employee: employeeId,
@@ -278,10 +280,13 @@ export const updateAttendanceMasterStatus = async (req, res) => {
         employeeEmail: employee.email,
         date: dayStart,
         checkInTime: getPredefinedCheckInForDay(dayStart, employee.predefinedCheckInTime),
-        checkOutTime: new Date(
-          getPredefinedCheckInForDay(dayStart, employee.predefinedCheckInTime).getTime() +
-            8 * 60 * 60 * 1000
-        ),
+        checkOutTime: getFullDayCheckoutTime({
+          dayStart,
+          checkInTime: getPredefinedCheckInForDay(dayStart, employee.predefinedCheckInTime),
+          totalWorkingMinutes: 8 * 60,
+          breakStartTime: settings?.breakStartTime,
+          breakEndTime: settings?.breakEndTime,
+        }),
         totalWorkingTime: 0,
       });
     }
@@ -294,11 +299,23 @@ export const updateAttendanceMasterStatus = async (req, res) => {
 
     if (status === 'full-day') {
       attendance.checkInTime = checkInBase;
-      attendance.checkOutTime = new Date(checkInBase.getTime() + 8 * 60 * 60 * 1000);
-      attendance.totalWorkingTime = 8 * 60;
+      attendance.checkOutTime = getFullDayCheckoutTime({
+        dayStart,
+        checkInTime: checkInBase,
+        totalWorkingMinutes: settings?.totalWorkingHours || 8 * 60,
+        breakStartTime: settings?.breakStartTime,
+        breakEndTime: settings?.breakEndTime,
+      });
+      attendance.totalWorkingTime = settings?.totalWorkingHours || 8 * 60;
     } else if (status === 'half-day') {
       attendance.checkInTime = checkInBase;
-      attendance.checkOutTime = new Date(checkInBase.getTime() + 4 * 60 * 60 * 1000);
+      attendance.checkOutTime = getFullDayCheckoutTime({
+        dayStart,
+        checkInTime: checkInBase,
+        totalWorkingMinutes: 4 * 60,
+        breakStartTime: settings?.breakStartTime,
+        breakEndTime: settings?.breakEndTime,
+      });
       attendance.totalWorkingTime = 4 * 60;
     } else if (status === 'leave') {
       attendance.checkInTime = checkInBase;

@@ -6,6 +6,11 @@ import PayrollSettings from '../models/payrollSettingsSchema.js';
 import DailyReport from '../models/dailyReportSchema.js';
 import { getStartOfIstDay, getEndOfIstDay, getIstDayKey } from '../utils/dailyReportUtils.js';
 import { syncSundayCompensationForAttendanceChange } from './payrollController.js';
+import {
+  calculateWorkingMinutes,
+  DEFAULT_CHECK_IN_TIME,
+  getTimeOnDay,
+} from '../utils/attendanceTimeUtils.js';
 
 const timeToMinutes = (time) => {
   if (!time) return null;
@@ -68,16 +73,25 @@ export const getCurrentStatus = async (req, res) => {
     const { latitude: recessEndLatitude, longitude: recessEndLongitude } =
       attendance.recessEndLocation || {};
 
-    // Calculate total working time live
-    let liveWorkingTime = 0;
-    if (attendance.checkInTime && !attendance.isRecess) {
-      liveWorkingTime =
-        (attendance.checkOutTime || now) -
-        attendance.checkInTime -
-        (attendance.totalRecessDuration || 0);
-    }
+    const settings = await AdminAttendanceSettings.findOne().lean();
+    const liveWorkingMinutes = calculateWorkingMinutes({
+      dayStart,
+      checkInTime: attendance.checkInTime,
+      checkOutTime: attendance.checkOutTime || now,
+      totalRecessDuration:
+        (attendance.totalRecessDuration || 0) +
+        (attendance.isRecess && attendance.recessStartTime
+          ? now - new Date(attendance.recessStartTime)
+          : 0),
+      breakStartTime: settings?.breakStartTime,
+      breakEndTime: settings?.breakEndTime,
+    });
 
-    const totalRecessDurationInMilliseconds = attendance.totalRecessDuration || 0;
+    const totalRecessDurationInMilliseconds =
+      (attendance.totalRecessDuration || 0) +
+      (attendance.isRecess && attendance.recessStartTime
+        ? now - new Date(attendance.recessStartTime)
+        : 0);
 
     // Format time as hours, minutes, and seconds
     const formatTime = (milliseconds) => {
@@ -120,7 +134,7 @@ export const getCurrentStatus = async (req, res) => {
           : null,
       totalRecessDuration: formatTime(totalRecessDurationInMilliseconds),
       totalRecessDurationMs: totalRecessDurationInMilliseconds,
-      liveWorkingTime: formatTime(liveWorkingTime),
+      liveWorkingTime: formatTime(liveWorkingMinutes * 60000),
       lateCheckIn,
     };
 
@@ -156,15 +170,14 @@ export const checkIn = async (req, res) => {
       return res.status(404).json({ message: 'Employee not found' });
     }
 
-    const predefinedCheckInTime = employee.predefinedCheckInTime; // Example: "10:00"
-    if (!predefinedCheckInTime) {
-      return res.status(400).json({ message: 'No predefined check-in time found' });
-    }
+    const predefinedCheckInTime = employee.predefinedCheckInTime || DEFAULT_CHECK_IN_TIME;
 
     // Convert predefined IST check-in time (HH:mm) to UTC by adding to IST day start
     const [predefinedHour, predefinedMinute] = predefinedCheckInTime.split(':').map(Number);
-    const predefinedTimeUTC = new Date(
-      dayStart.getTime() + (predefinedHour * 60 + predefinedMinute) * 60 * 1000
+    const predefinedTimeUTC = getTimeOnDay(
+      dayStart,
+      `${predefinedHour}:${predefinedMinute}`,
+      DEFAULT_CHECK_IN_TIME
     );
 
     const actualCheckInTimeUTC = new Date();
@@ -336,20 +349,23 @@ export const checkOut = async (req, res) => {
       longitude: lng,
     };
 
-    // Calculate total working time in minutes
-    const totalWorkingTimeInMinutes = Math.floor(
-      (attendance.checkOutTime - attendance.checkInTime - (attendance.totalRecessDuration || 0)) /
-        60000
-    );
+    const settings = await AdminAttendanceSettings.findOne().lean();
+    const totalWorkingTimeInMinutes = calculateWorkingMinutes({
+      dayStart,
+      checkInTime: attendance.checkInTime,
+      checkOutTime: attendance.checkOutTime,
+      totalRecessDuration: attendance.totalRecessDuration,
+      breakStartTime: settings?.breakStartTime,
+      breakEndTime: settings?.breakEndTime,
+    });
     attendance.totalWorkingTime = totalWorkingTimeInMinutes; // Save total working time in minutes to database
 
     // Fetch half-day threshold from Admin Attendance Settings
-    const settings = await AdminAttendanceSettings.findOne();
     const halfDayThreshold = settings?.halfDayHours || 300; // Default to 300 minutes if not set
 
     // If total working time is less than the required full-time hours but more than half-day threshold, mark it as a half-day
     if (
-      totalWorkingTimeInMinutes < settings.totalWorkingHours &&
+      totalWorkingTimeInMinutes < (settings?.totalWorkingHours || 480) &&
       totalWorkingTimeInMinutes > halfDayThreshold
     ) {
       attendance.halfDay = true;
@@ -408,8 +424,15 @@ export const updateAttendance = async (req, res) => {
 
     // Recalculate totalWorkingTime if check-out and check-in times exist
     if (attendance.checkOutTime && attendance.checkInTime) {
-      attendance.totalWorkingTime =
-        attendance.checkOutTime - attendance.checkInTime - (attendance.totalRecessDuration || 0);
+      const settings = await AdminAttendanceSettings.findOne().lean();
+      attendance.totalWorkingTime = calculateWorkingMinutes({
+        dayStart: getStartOfIstDay(attendance.date),
+        checkInTime: attendance.checkInTime,
+        checkOutTime: attendance.checkOutTime,
+        totalRecessDuration: attendance.totalRecessDuration,
+        breakStartTime: settings?.breakStartTime,
+        breakEndTime: settings?.breakEndTime,
+      });
     }
 
     await attendance.save();

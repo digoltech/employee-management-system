@@ -16,6 +16,7 @@ import {
   getEmployeeHolidayDateSet,
   getEmployeesOnHoliday,
 } from '../services/holidayPayrollService.js';
+import { calculateWorkingMinutes } from '../utils/attendanceTimeUtils.js';
 
 const getResolvedPayrollStatus = (attendance, settings) => {
   if (!attendance) return 'absent';
@@ -105,7 +106,14 @@ export const getDailyAttendance = async (req, res) => {
         // Employee checked in but not checked out yet - calculate working time from now
         const now = new Date();
         const checkInTime = new Date(emp.checkInTime);
-        workingMinutes = Math.floor((now - checkInTime) / 60000); // Convert milliseconds to minutes
+        workingMinutes = calculateWorkingMinutes({
+          dayStart,
+          checkInTime,
+          checkOutTime: now,
+          totalRecessDuration: emp.totalRecessDuration,
+          breakStartTime: settings?.breakStartTime,
+          breakEndTime: settings?.breakEndTime,
+        });
       }
 
       const holidayInfo = holidayInfoByEmployee.get(String(emp.employeeId));

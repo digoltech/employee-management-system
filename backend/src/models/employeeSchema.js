@@ -39,7 +39,7 @@ const employeeSchema = new mongoose.Schema(
     emergencyContactName: { type: String },
     emergencyContactPhone: { type: String },
     // predefined Checkin time
-    predefinedCheckInTime: { type: String, default: '10:00' },
+    predefinedCheckInTime: { type: String, default: '09:30' },
     // email verification
     isVerified: { type: Boolean, default: false },
     otp: { type: String },

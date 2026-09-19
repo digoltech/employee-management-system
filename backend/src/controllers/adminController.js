@@ -129,8 +129,15 @@ export const getAttendanceSettings = async (req, res) => {
 
 export const updateAttendanceSettings = async (req, res) => {
   try {
-    const { lateByMinutes, totalWorkingHours, halfDayHours, minAbsentHours, maxLateCheckIns } =
-      req.body;
+    const {
+      lateByMinutes,
+      totalWorkingHours,
+      halfDayHours,
+      minAbsentHours,
+      maxLateCheckIns,
+      breakStartTime,
+      breakEndTime,
+    } = req.body;
 
     let settings = await AdminAttendanceSettings.findOne();
 
@@ -144,6 +151,8 @@ export const updateAttendanceSettings = async (req, res) => {
     if (halfDayHours !== undefined) settings.halfDayHours = halfDayHours;
     if (minAbsentHours !== undefined) settings.minAbsentHours = minAbsentHours;
     if (maxLateCheckIns !== undefined) settings.maxLateCheckIns = maxLateCheckIns;
+    if (breakStartTime !== undefined) settings.breakStartTime = breakStartTime;
+    if (breakEndTime !== undefined) settings.breakEndTime = breakEndTime;
 
     await settings.save();
 

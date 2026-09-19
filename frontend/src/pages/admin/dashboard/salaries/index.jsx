@@ -117,6 +117,7 @@ const AdminSalaryManagement = () => {
     transactionDate: '',
     comment: '',
   });
+  const [loanEditId, setLoanEditId] = useState(null);
   const [extraSettings, setExtraSettings] = useState({
     defaultExtra: 0,
   });
@@ -127,11 +128,17 @@ const AdminSalaryManagement = () => {
     transactionDate: '',
     comment: '',
   });
+  const [extraEditId, setExtraEditId] = useState(null);
   const [formState, setFormState] = useState({
+    fullDays: 0,
+    halfDays: 0,
+    paidLeaves: 0,
+    unpaidDays: 0,
     overtimeHours: 0,
     penalties: 0,
     loanAmount: 0,
     extraAmount: 0,
+    netPay: '',
     status: 'unpaid',
   });
   const [autoPenaltyValue, setAutoPenaltyValue] = useState(0);
@@ -894,11 +901,16 @@ const AdminSalaryManagement = () => {
     setIsPanelLoading(true);
     setSelectedEmployee({ ...employee, payroll });
     setFormState({
+      fullDays: payroll?.fullDays || 0,
+      halfDays: payroll?.halfDays || 0,
+      paidLeaves: payroll?.paidLeaves || 0,
+      unpaidDays: payroll?.unpaidDays || 0,
       overtimeHours: payroll?.overtimeHours || 0,
       penalties: payroll?.penalties || 0,
       loanAmount:
         loanAdvanceMap[employee._id] ?? payroll?.computedLoanAmount ?? (payroll?.loanAmount || 0),
       extraAmount: getExtraAmountForEmployee(employee._id),
+      netPay: '',
       status: payroll?.status || 'unpaid',
     });
     setIsPanelOpen(true);
@@ -916,6 +928,10 @@ const AdminSalaryManagement = () => {
         setSelectedEmployee(prev => (prev ? { ...prev, payroll: preferredPayroll } : prev));
         setFormState(prev => ({
           ...prev,
+          fullDays: preferredPayroll?.fullDays || 0,
+          halfDays: preferredPayroll?.halfDays || 0,
+          paidLeaves: preferredPayroll?.paidLeaves || 0,
+          unpaidDays: preferredPayroll?.unpaidDays || 0,
           overtimeHours: preferredPayroll?.overtimeHours || 0,
           penalties: preferredPayroll?.penalties || 0,
           loanAmount:
@@ -923,6 +939,7 @@ const AdminSalaryManagement = () => {
             preferredPayroll?.computedLoanAmount ??
             (preferredPayroll?.loanAmount || 0),
           extraAmount: getExtraAmountForEmployee(employee._id),
+          netPay: '',
           status: preferredPayroll?.status || 'unpaid',
         }));
       }
@@ -959,6 +976,54 @@ const AdminSalaryManagement = () => {
     if (event) event.stopPropagation();
     setLoanForm(prev => ({ ...prev, employeeId: employee._id }));
     setSettingsPanel('loans');
+  };
+
+  const editLoanAdvance = record => {
+    setLoanEditId(record._id);
+    setLoanForm({
+      employeeId: record.employee?._id || record.employee || '',
+      reference: record.reference || '',
+      amount: record.amount ?? '',
+      type: record.type || 'loan',
+      installmentType: record.installmentType || 'monthly',
+      monthlyInstallment: record.monthlyInstallment ?? '',
+      tenureMonths: record.tenureMonths ?? '',
+      transactionDate: record.transactionDate ? toIstInputDate(new Date(record.transactionDate)) : '',
+      comment: record.comment || '',
+    });
+    setSettingsPanel('loans');
+  };
+
+  const editExtraAllowance = record => {
+    setExtraEditId(record._id);
+    setExtraForm({
+      employeeId: record.employee?._id || record.employee || '',
+      reference: record.reference || '',
+      amount: record.amount ?? '',
+      transactionDate: record.transactionDate ? toIstInputDate(new Date(record.transactionDate)) : '',
+      comment: record.comment || '',
+    });
+    setSettingsPanel('extras');
+  };
+
+  const cancelPayrollRecord = async (type, record) => {
+    const endpoint = type === 'loan' ? 'loan-advances' : 'extra-allowances';
+    try {
+      const response = await fetch(`${BASE_URL}/${endpoint}/${record._id}`, {
+        method: 'PUT',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'cancelled' }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.message || 'Failed to cancel payroll item.');
+      toast.success('Payroll item cancelled.');
+      if (type === 'loan') await fetchLoanAdvances();
+      else await fetchExtraAllowances();
+      await fetchPayrollPreview();
+      await fetchPayrolls();
+    } catch (error) {
+      toast.error(error.message || 'Failed to cancel payroll item.');
+    }
   };
 
   const openAttendanceMasterForEmployee = employee => {
@@ -1017,14 +1082,18 @@ const AdminSalaryManagement = () => {
       }
 
       try {
-        const response = await fetch(`${BASE_URL}/loan-advances`, {
-          method: 'POST',
+        const response = await fetch(
+          loanEditId
+            ? `${BASE_URL}/loan-advances/${loanEditId}`
+            : `${BASE_URL}/loan-advances`,
+          {
+          method: loanEditId ? 'PUT' : 'POST',
           headers: {
             ...authHeaders,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            employeeId: loanForm.employeeId,
+            ...(loanEditId ? { employee: loanForm.employeeId } : { employeeId: loanForm.employeeId }),
             reference: loanForm.reference,
             amount: Number(loanForm.amount),
             type: loanForm.type,
@@ -1040,7 +1109,8 @@ const AdminSalaryManagement = () => {
             transactionDate: loanForm.transactionDate,
             comment: loanForm.comment,
           }),
-        });
+          }
+        );
 
         if (!response.ok) {
           const data = await response.json().catch(() => ({}));
@@ -1052,6 +1122,7 @@ const AdminSalaryManagement = () => {
         await fetchPayrollPreview();
         await fetchPayrolls();
         setSettingsPanel(null);
+        setLoanEditId(null);
         setLoanForm(prev => ({
           employeeId: prev.employeeId,
           reference: '',
@@ -1077,20 +1148,25 @@ const AdminSalaryManagement = () => {
       }
 
       try {
-        const response = await fetch(`${BASE_URL}/extra-allowances`, {
-          method: 'POST',
+        const response = await fetch(
+          extraEditId
+            ? `${BASE_URL}/extra-allowances/${extraEditId}`
+            : `${BASE_URL}/extra-allowances`,
+          {
+          method: extraEditId ? 'PUT' : 'POST',
           headers: {
             ...authHeaders,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            employeeId: extraForm.employeeId,
+            ...(extraEditId ? { employee: extraForm.employeeId } : { employeeId: extraForm.employeeId }),
             reference: extraForm.reference,
             amount: Number(extraForm.amount),
             transactionDate: extraForm.transactionDate,
             comment: extraForm.comment,
           }),
-        });
+          }
+        );
 
         if (!response.ok) {
           const data = await response.json().catch(() => ({}));
@@ -1102,6 +1178,7 @@ const AdminSalaryManagement = () => {
         await fetchPayrollPreview();
         await fetchPayrolls();
         setSettingsPanel(null);
+        setExtraEditId(null);
         setExtraForm(prev => ({
           employeeId: prev.employeeId,
           reference: '',
@@ -1694,17 +1771,9 @@ const AdminSalaryManagement = () => {
       return;
     }
     const selectedPayroll = selectedEmployee?.payroll || {};
-    const derivedPenalties = Number(
-      selectedPayroll?.isPreview
-        ? (autoPenaltyMap[selectedEmployee._id] ?? 0)
-        : selectedPayroll?.penalties || 0
-    );
-    const derivedLoanAmount = Number(
-      selectedPayroll?.isPreview
-        ? (loanAdvanceMap[selectedEmployee._id] ?? selectedPayroll?.computedLoanAmount ?? 0)
-        : selectedPayroll?.loanAmount || 0
-    );
-    const derivedOvertimeHours = Number(selectedPayroll?.overtimeHours || 0);
+    const derivedPenalties = Number(formState.penalties || 0);
+    const derivedLoanAmount = Number(formState.loanAmount || 0);
+    const derivedOvertimeHours = Number(formState.overtimeHours || 0);
     const derivedExtraAmount = getExtraAmountForEmployee(selectedEmployee._id);
     try {
       const response = await fetch(`${BASE_URL}/payroll/process/${selectedEmployee._id}`, {
@@ -1716,10 +1785,15 @@ const AdminSalaryManagement = () => {
         body: JSON.stringify({
           month,
           year,
+          fullDays: Number(formState.fullDays || 0),
+          halfDays: Number(formState.halfDays || 0),
+          paidLeaves: Number(formState.paidLeaves || 0),
+          unpaidDays: Number(formState.unpaidDays || 0),
           overtimeHours: derivedOvertimeHours,
           penalties: derivedPenalties,
           loanAmount: derivedLoanAmount,
-          extraAmount: derivedExtraAmount,
+          extraAmount: Number(formState.extraAmount || derivedExtraAmount || 0),
+          netPay: formState.netPay === '' ? undefined : Number(formState.netPay || 0),
           status: formState.status,
         }),
       });
@@ -1954,7 +2028,6 @@ const AdminSalaryManagement = () => {
       penaltySettings.method === 'fixed'
         ? Number(penaltySettings.fixedPenaltyPerDay || 0)
         : dailyWage * Number(penaltySettings.dailyWageMultiplier || 0);
-    const totalPenalty = excessLateDays * perDayPenalty;
     const configuredOvertimeRate = Number(overtimeSettings.hourlyRate || 0);
     const overtimeFromDailyWage =
       (dailyWage / HOURS_PER_DAY) * Number(overtimeSettings.dailyWageMultiplier || 1);
@@ -1964,24 +2037,17 @@ const AdminSalaryManagement = () => {
         : configuredOvertimeRate > 0
           ? configuredOvertimeRate
           : overtimeFromDailyWage;
-    const overtimeHours = Number(payroll?.overtimeHours || 0);
-    const overtimeAmount = Number(payroll?.overtimeAmount || 0);
-    const extraAmount = getExtraAmountForEmployee(selectedEmployee?._id);
-    const isPreviewOrUnpaid = payroll?.isPreview || payroll?.status !== 'paid';
-    const snapshotPenaltyAmount = Number(
-      isPreviewOrUnpaid ? (autoPenaltyMap[selectedEmployee?._id] ?? 0) : payroll?.penalties || 0
-    );
-    const snapshotLoanAmount = Number(
-      isPreviewOrUnpaid
-        ? (loanAdvanceMap[selectedEmployee?._id] ?? payroll?.computedLoanAmount ?? 0)
-        : payroll?.loanAmount || 0
-    );
+    const overtimeHours = Number(formState.overtimeHours || 0);
+    const overtimeAmount = overtimeHours * overtimeRate;
+    const extraAmount = Number(formState.extraAmount || 0);
+    const snapshotPenaltyAmount = Number(formState.penalties || 0);
+    const snapshotLoanAmount = Number(formState.loanAmount || 0);
     const showPenaltySummary = Boolean(penaltySettings.enabled);
 
-    const fullDays = Number(payroll?.fullDays || 0);
-    const halfDays = Number(payroll?.halfDays || 0);
-    const paidLeaves = Number(payroll?.paidLeaves || 0);
-    const unpaidDays = Number(payroll?.unpaidDays || 0);
+    const fullDays = Number(formState.fullDays || 0);
+    const halfDays = Number(formState.halfDays || 0);
+    const paidLeaves = Number(formState.paidLeaves || 0);
+    const unpaidDays = Number(formState.unpaidDays || 0);
     const paidLeavesGross = paidLeaves * dailyWage;
     const leaveEncashmentAmount = Number(
       payroll?.leaveEncashmentAmount ?? payroll?.leaveEncashment?.total ?? 0
@@ -1993,10 +2059,14 @@ const AdminSalaryManagement = () => {
       overtimeAmount +
       extraAmount +
       leaveEncashmentAmount;
-    const deductions = snapshotPenaltyAmount + snapshotLoanAmount;
-    const totalSalary = isPreviewOrUnpaid
-      ? getPreviewNetPay(selectedEmployee?._id, payroll)
-      : Number(payroll?.totalSalary || 0);
+    const manualPenalty = Number(formState.penalties || 0);
+    const manualLoanAmount = Number(formState.loanAmount || 0);
+    const deductions = manualPenalty + manualLoanAmount + unpaidDays * dailyWage;
+    const calculatedNetSalary = grossPay - deductions;
+    const totalSalary =
+      formState.netPay === '' || formState.netPay === null
+        ? calculatedNetSalary
+        : Number(formState.netPay || 0);
 
     return (
       <div className="space-y-6">
@@ -2321,7 +2391,100 @@ const AdminSalaryManagement = () => {
           </div>
         </details>
 
-        {/* 6. Action Buttons */}
+        {/* 6. Manual Payroll Adjustments */}
+        <div className="space-y-2.5">
+          <h3 className="text-xs font-bold uppercase tracking-[0.12em] text-light-text/50 dark:text-dark-text/50">
+            Manual Payroll Adjustments
+          </h3>
+          <div className="grid grid-cols-1 gap-3 rounded-xl border border-light-border/80 dark:border-dark-border/80 p-4 md:grid-cols-3">
+            {[
+              ['fullDays', 'Full Days', '0.01'],
+              ['halfDays', 'Half Days', '0.01'],
+              ['paidLeaves', 'Paid Leave Days', '0.01'],
+              ['unpaidDays', 'Unpaid Days', '0.01'],
+              ['overtimeHours', 'Overtime Hours', '0.01'],
+              ['penalties', 'Penalty Amount', '0.01'],
+              ['loanAmount', 'Loan / Advance Deduction', '0.01'],
+              ['extraAmount', 'Extra Amount', '0.01'],
+              ['netPay', 'Net Pay Override', '0.01'],
+            ].map(([field, label, step]) => (
+              <label key={field} className="text-sm font-medium text-light-text dark:text-dark-text">
+                {label}
+                <input
+                  type="number"
+                  min="0"
+                  step={step}
+                  value={formState[field]}
+                  disabled={isPayrollPaidLocked}
+                  onChange={event =>
+                    setFormState(prev => ({ ...prev, [field]: event.target.value }))
+                  }
+                  className="mt-2 w-full rounded-lg border border-light-border bg-light-card px-3 py-2 dark:border-dark-border dark:bg-dark-card disabled:cursor-not-allowed disabled:opacity-60"
+                />
+              </label>
+            ))}
+          </div>
+          <p className="text-xs text-light-text/60 dark:text-dark-text/60">
+            These values override automatic payroll calculations. Leave Net Pay Override empty to use the calculated result.
+          </p>
+          <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm">
+            <div className="mb-3 space-y-2 border-b border-primary/15 pb-3 font-mono text-xs">
+              <div className="flex items-center justify-between gap-4">
+                <span>Full days</span>
+                <span>
+                  {fullDays} x ₹{dailyWage.toFixed(2)} = ₹{(fullDays * dailyWage).toFixed(2)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span>Half days</span>
+                <span>
+                  {halfDays} x ₹{(dailyWage * 0.5).toFixed(2)} = ₹
+                  {(halfDays * dailyWage * 0.5).toFixed(2)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span>Paid leaves</span>
+                <span>
+                  {paidLeaves} x ₹{dailyWage.toFixed(2)} = ₹{paidLeavesGross.toFixed(2)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-4 text-success">
+                <span>Overtime</span>
+                <span>
+                  {overtimeHours.toFixed(2)} hrs x ₹{overtimeRate.toFixed(2)} = ₹
+                  {overtimeAmount.toFixed(2)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-4 text-success">
+                <span>Extras</span>
+                <span>+ ₹{extraAmount.toFixed(2)}</span>
+              </div>
+              <div className="flex items-center justify-between gap-4 text-danger">
+                <span>Unpaid days</span>
+                <span>
+                  {unpaidDays} x ₹{dailyWage.toFixed(2)} = - ₹
+                  {(unpaidDays * dailyWage).toFixed(2)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-4 text-danger">
+                <span>Penalties + loan/advance</span>
+                <span>
+                  - ₹{manualPenalty.toFixed(2)} - ₹{manualLoanAmount.toFixed(2)}
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center justify-between font-semibold">
+              <span>Calculated Net Salary</span>
+              <span className="text-primary">₹{calculatedNetSalary.toFixed(2)}</span>
+            </div>
+            <div className="mt-1 flex items-center justify-between text-xs text-light-text/60 dark:text-dark-text/60">
+              <span>Final value after override</span>
+              <span>₹{totalSalary.toFixed(2)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* 7. Action Buttons */}
         <div className="mt-8 flex flex-col gap-3">
           <button
             onClick={processPayroll}
@@ -3509,13 +3672,14 @@ const AdminSalaryManagement = () => {
                               <th className="px-4 py-3 text-left font-semibold">Reference</th>
                               <th className="px-4 py-3 text-left font-semibold">Installment</th>
                               <th className="px-4 py-3 text-left font-semibold">Remarks</th>
+                              <th className="px-4 py-3 text-left font-semibold">Actions</th>
                             </tr>
                           </thead>
                           <tbody>
                             {!loanDetails ? (
                               <tr>
                                 <td
-                                  colSpan={7}
+                                  colSpan={8}
                                   className="px-4 py-6 text-center text-light-text/60 dark:text-dark-text/60"
                                 >
                                   Select an employee to view loan history.
@@ -3524,7 +3688,7 @@ const AdminSalaryManagement = () => {
                             ) : loanDetails.records.length === 0 ? (
                               <tr>
                                 <td
-                                  colSpan={7}
+                                  colSpan={8}
                                   className="px-4 py-6 text-center text-light-text/60 dark:text-dark-text/60"
                                 >
                                   No loan or advance records for this period.
@@ -3580,6 +3744,26 @@ const AdminSalaryManagement = () => {
                                           : 'N/A'}
                                   </td>
                                   <td className="px-4 py-3">{record.comment || '—'}</td>
+                                  <td className="px-4 py-3">
+                                    <div className="flex gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => editLoanAdvance(record)}
+                                        className="text-primary hover:underline"
+                                      >
+                                        Edit
+                                      </button>
+                                      {getLoanScheduleStatus(record, month, year) === 'active' && (
+                                        <button
+                                          type="button"
+                                          onClick={() => cancelPayrollRecord('loan', record)}
+                                          className="text-danger hover:underline"
+                                        >
+                                          Cancel
+                                        </button>
+                                      )}
+                                    </div>
+                                  </td>
                                 </tr>
                               ))
                             )}
@@ -3673,13 +3857,14 @@ const AdminSalaryManagement = () => {
                               </th>
                               <th className="px-4 py-3 text-left font-semibold">Amount</th>
                               <th className="px-4 py-3 text-left font-semibold">Remarks</th>
+                              <th className="px-4 py-3 text-left font-semibold">Actions</th>
                             </tr>
                           </thead>
                           <tbody>
                             {!paidLeaveDetails ? (
                               <tr>
                                 <td
-                                  colSpan={6}
+                                  colSpan={7}
                                   className="px-4 py-6 text-center text-light-text/60 dark:text-dark-text/60"
                                 >
                                   Select an employee to view paid leave details.
@@ -3688,7 +3873,7 @@ const AdminSalaryManagement = () => {
                             ) : (paidLeaveDetails.leaveRecords || []).length === 0 ? (
                               <tr>
                                 <td
-                                  colSpan={6}
+                                  colSpan={7}
                                   className="px-4 py-6 text-center text-light-text/60 dark:text-dark-text/60"
                                 >
                                   No approved paid leave requests for this period.
@@ -3770,6 +3955,26 @@ const AdminSalaryManagement = () => {
                                   ₹{Number(record.amount || 0).toFixed(2)}
                                 </td>
                                 <td className="px-4 py-3">{record.comment || '—'}</td>
+                                  <td className="px-4 py-3">
+                                    <div className="flex gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => editExtraAllowance(record)}
+                                        className="text-primary hover:underline"
+                                      >
+                                        Edit
+                                      </button>
+                                      {record.status === 'active' && (
+                                        <button
+                                          type="button"
+                                          onClick={() => cancelPayrollRecord('extra', record)}
+                                          className="text-danger hover:underline"
+                                        >
+                                          Cancel
+                                        </button>
+                                      )}
+                                    </div>
+                                  </td>
                               </tr>
                             ))
                           )}

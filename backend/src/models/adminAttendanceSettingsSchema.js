@@ -32,6 +32,8 @@ const AdminAttendanceSettingsSchema = new mongoose.Schema(
       required: true,
       default: 5, // If employee is late more than this times, it's a half-day
     },
+    breakStartTime: { type: String, required: true, default: '13:00' },
+    breakEndTime: { type: String, required: true, default: '14:00' },
   },
   { timestamps: true }
 );

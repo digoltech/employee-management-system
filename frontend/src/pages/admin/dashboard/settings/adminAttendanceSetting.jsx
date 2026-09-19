@@ -46,6 +46,8 @@ const AdminAttendanceSettings = () => {
     halfDayHours: '',
     minAbsentHours: '',
     maxLateCheckIns: '',
+    breakStartTime: '13:00',
+    breakEndTime: '14:00',
   });
   const [loading, setLoading] = useState(false);
   const [saveStatus, setSaveStatus] = useState(null);
@@ -78,6 +80,8 @@ const AdminAttendanceSettings = () => {
         halfDayHours: minutesToHours(attendanceSettings.halfDayHours),
         minAbsentHours: minutesToHours(attendanceSettings.minAbsentHours),
         maxLateCheckIns: penaltySettings.allowedDays ?? attendanceSettings.maxLateCheckIns,
+        breakStartTime: attendanceSettings.breakStartTime || '13:00',
+        breakEndTime: attendanceSettings.breakEndTime || '14:00',
       };
       setSettings(convertedSettings);
       setOriginalSettings(convertedSettings);
@@ -110,6 +114,8 @@ const AdminAttendanceSettings = () => {
       halfDayHours: hoursToMinutes(settings.halfDayHours),
       minAbsentHours: hoursToMinutes(settings.minAbsentHours),
       maxLateCheckIns: settings.maxLateCheckIns,
+      breakStartTime: settings.breakStartTime,
+      breakEndTime: settings.breakEndTime,
     };
 
     try {
@@ -195,6 +201,26 @@ const AdminAttendanceSettings = () => {
       placeholder: 'Enter number (e.g. 3)',
       unit: 'times',
       color: 'secondary',
+    },
+    {
+      name: 'breakStartTime',
+      title: 'Break Start Time',
+      description: 'Default scheduled break start time',
+      icon: <Clock className="w-5 h-5 text-warning" />,
+      help: 'Working-time calculations deduct the configured break when the attendance interval overlaps it.',
+      placeholder: '13:00',
+      unit: 'time',
+      color: 'warning',
+    },
+    {
+      name: 'breakEndTime',
+      title: 'Break End Time',
+      description: 'Default scheduled break end time',
+      icon: <Clock className="w-5 h-5 text-warning" />,
+      help: 'Set the end of the scheduled break. The default window is 1:00 PM to 2:00 PM.',
+      placeholder: '14:00',
+      unit: 'time',
+      color: 'warning',
     },
   ];
 
@@ -329,25 +355,21 @@ const AdminAttendanceSettings = () => {
                   <div className="mt-2">
                     <div className="relative">
                       <input
-                        type="number"
+                        type={section.unit === 'time' ? 'time' : 'number'}
                         name={section.name}
                         value={settings[section.name]}
                         onChange={handleChange}
                         className={`w-full py-3 px-4 bg-light-bg dark:bg-dark-bg border border-light-border dark:border-dark-border rounded-lg focus:outline-none focus:ring-2 focus:ring-${section.color} transition-all text-light-text dark:text-dark-text`}
                         placeholder={section.placeholder}
                         required
-                        min="0"
-                        step={
-                          section.name === 'lateByMinutes' || section.name === 'maxLateCheckIns'
-                            ? '1'
-                            : '0.25'
-                        }
+                        min={section.unit === 'time' ? undefined : '0'}
+                        step={section.unit === 'time' ? undefined : section.name === 'lateByMinutes' || section.name === 'maxLateCheckIns' ? '1' : '0.25'}
                       />
                       <span className="absolute right-4 top-3 text-light-text dark:text-dark-text opacity-50 text-sm">
                         {section.unit}
                       </span>
                     </div>
-                    {section.name !== 'maxLateCheckIns' && (
+                    {section.name !== 'maxLateCheckIns' && section.unit !== 'time' && (
                       <p className="text-xs text-light-text dark:text-dark-text opacity-70 mt-1">
                         ={' '}
                         {

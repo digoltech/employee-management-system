@@ -11,17 +11,20 @@ import PayrollSettings from '../models/payrollSettingsSchema.js';
 import AdminAttendanceSettings from '../models/adminAttendanceSettingsSchema.js';
 import LoanAdvance from '../models/loanAdvanceSchema.js';
 import ExtraAllowance from '../models/extraAllowanceSchema.js';
+import LateCheckIn from '../models/lateCheckInSchema.js';
 import sendEmail from '../services/sendEmail.js';
 import { generatePayslipHtml, getDefaultPayslipSettings } from '../utils/payslipUtils.js';
 import {
   getIstDayKey,
   getIstDayOfWeek,
   getIstDayStartFromParts,
+  getStartOfIstDay,
   getIstMonthRange,
   toIstDate,
 } from '../utils/timezoneUtils.js';
 import { getPayrollLeaveDaysForRange, getTemplateBalance } from '../utils/leaveTemplateUtils.js';
 import { getEmployeeHolidayDateSet } from '../services/holidayPayrollService.js';
+import { calculateWorkingMinutes } from '../utils/attendanceTimeUtils.js';
 
 const HOURS_PER_DAY = 8;
 
@@ -193,6 +196,31 @@ const getExtraAllowanceTotal = async (employeeId, month, year) => {
     if (targetIndex !== startIndex) return total;
     return total + Number(record.amount || 0);
   }, 0);
+};
+
+const getConfiguredPenalty = async ({ employeeId, month, year, dailyWage, payrollSettings }) => {
+  const penaltySettings = payrollSettings?.penalties;
+  if (penaltySettings?.enabled === false) return 0;
+
+  const { start, end } = getMonthRange(month, year);
+  const lateCheckInCount = await LateCheckIn.countDocuments({
+    employee: employeeId,
+    date: { $gte: start, $lte: end },
+    lateByMinutes: { $gt: 0 },
+  });
+  const allowedDays = Math.max(0, Number(penaltySettings?.allowedDays || 0));
+  const excessLateCheckIns = Math.max(0, lateCheckInCount - allowedDays);
+  if (!excessLateCheckIns) return 0;
+
+  if (penaltySettings?.method === 'percentage') {
+    return (
+      excessLateCheckIns *
+      Number(dailyWage || 0) *
+      Number(penaltySettings.dailyWageMultiplier || 0)
+    );
+  }
+
+  return excessLateCheckIns * Number(penaltySettings?.fixedPenaltyPerDay || 0);
 };
 
 const getSundayCompensationFromRecord = (record) => {
@@ -442,10 +470,15 @@ const computePayroll = async ({
   employee,
   month,
   year,
+  fullDays,
+  halfDays,
+  paidLeaves,
+  unpaidDays,
   overtimeHours,
   penalties,
   loanAmount,
   extraAmount,
+  netPay,
   payrollSettings,
   processedBy,
   persistSundayCompensation = false,
@@ -496,6 +529,16 @@ const computePayroll = async ({
 
   const baseSalary = Number(salaryRecord?.baseSalary || 0);
   const dailyWage = workingDays ? baseSalary / workingDays : 0;
+  const resolvedPenalties =
+    penalties !== undefined && penalties !== null
+      ? Number(penalties || 0)
+      : await getConfiguredPenalty({
+          employeeId: employee._id,
+          month,
+          year,
+          dailyWage,
+          payrollSettings,
+        });
 
   const sundayCompensationEntries = buildSundayCompensationEntries({
     attendanceRecords,
@@ -571,8 +614,8 @@ const computePayroll = async ({
     ? storedExtraAmount
     : storedExtraAmount + sundayCompensationTotal;
 
-  let fullDays = 0;
-  let halfDays = 0;
+  let calculatedFullDays = 0;
+  let calculatedHalfDays = 0;
   let manualLeaveDays = 0;
 
   attendanceRecords.forEach((record) => {
@@ -593,10 +636,10 @@ const computePayroll = async ({
       return;
     }
     if (resolvedStatus === 'half-day') {
-      halfDays += 1;
+      calculatedHalfDays += 1;
       return;
     }
-    fullDays += 1;
+    calculatedFullDays += 1;
   });
 
   const approvedLeaves = await Leave.find({
@@ -622,8 +665,17 @@ const computePayroll = async ({
     })
   ).then((values) => values.reduce((sum, value) => sum + Number(value || 0), 0));
 
-  const paidLeaves = approvedPaidLeaves + manualLeaveDays;
-  const unpaidDays = Math.max(0, workingDays - fullDays - halfDays - paidLeaves);
+  const calculatedPaidLeaves = approvedPaidLeaves + manualLeaveDays;
+  const calculatedUnpaidDays = Math.max(
+    0,
+    workingDays - calculatedFullDays - calculatedHalfDays - calculatedPaidLeaves
+  );
+  const resolvedFullDays = fullDays === undefined ? calculatedFullDays : Number(fullDays || 0);
+  const resolvedHalfDays = halfDays === undefined ? calculatedHalfDays : Number(halfDays || 0);
+  const resolvedPaidLeaves =
+    paidLeaves === undefined ? calculatedPaidLeaves : Number(paidLeaves || 0);
+  const resolvedUnpaidDays =
+    unpaidDays === undefined ? calculatedUnpaidDays : Number(unpaidDays || 0);
   const dailyWageOvertimeMultiplier =
     payrollSettings?.overtime?.dailyWageMultiplier !== undefined &&
     payrollSettings?.overtime?.dailyWageMultiplier !== null
@@ -649,11 +701,14 @@ const computePayroll = async ({
           workingMinutes = Math.floor(workingMinutes / 60000);
         }
         if (!workingMinutes && record.checkInTime && record.checkOutTime) {
-          const durationMs =
-            new Date(record.checkOutTime) -
-            new Date(record.checkInTime) -
-            Number(record.totalRecessDuration || 0);
-          workingMinutes = Math.max(0, Math.floor(durationMs / 60000));
+          workingMinutes = calculateWorkingMinutes({
+            dayStart: getStartOfIstDay(record.date),
+            checkInTime: record.checkInTime,
+            checkOutTime: record.checkOutTime,
+            totalRecessDuration: record.totalRecessDuration,
+            breakStartTime: adminAttendanceSettings?.breakStartTime,
+            breakEndTime: adminAttendanceSettings?.breakEndTime,
+          });
         }
         const overtimeMinutes = Math.max(
           0,
@@ -667,7 +722,7 @@ const computePayroll = async ({
       ? Number(overtimeHours || 0)
       : Math.round((autoOvertimeMinutes / 60) * 100) / 100;
   const overtimeAmount = resolvedOvertimeHours * overtimeRate;
-  const halfDayDeduction = halfDays * dailyWage * 0.5;
+  const halfDayDeduction = resolvedHalfDays * dailyWage * 0.5;
   const defaultExtra = Number(payrollSettings?.extras?.defaultExtra || 0);
   const normalizedExtraAmount =
     extraAmount !== undefined && extraAmount !== null ? Number(extraAmount || 0) : defaultExtra;
@@ -675,14 +730,16 @@ const computePayroll = async ({
   const leaveEncashmentAmount = Number(leaveEncashmentTotal || 0);
 
   const totalSalary =
-    fullDays * dailyWage +
-    halfDays * dailyWage * 0.5 +
-    paidLeaves * dailyWage +
+    resolvedFullDays * dailyWage +
+    resolvedHalfDays * dailyWage * 0.5 +
+    resolvedPaidLeaves * dailyWage +
     overtimeAmount +
     totalExtraAmount -
-    Number(penalties || 0) -
+    resolvedPenalties -
     totalLoanAmount +
-    leaveEncashmentAmount;
+    leaveEncashmentAmount -
+    (unpaidDays === undefined ? 0 : resolvedUnpaidDays * dailyWage);
+  const resolvedTotalSalary = netPay === undefined ? totalSalary : Number(netPay || 0);
 
   const holidayBreakdown = {
     fixedDates: Array.from(fixedDates.values()).map((entry) => ({
@@ -698,18 +755,19 @@ const computePayroll = async ({
 
   return {
     workingDays,
-    fullDays,
-    halfDays,
-    paidLeaves,
-    unpaidDays,
+    fullDays: resolvedFullDays,
+    halfDays: resolvedHalfDays,
+    paidLeaves: resolvedPaidLeaves,
+    unpaidDays: resolvedUnpaidDays,
     baseSalary,
     dailyWage,
     overtimeHours: resolvedOvertimeHours,
     overtimeAmount,
+    penalties: resolvedPenalties,
     extraAmount: totalExtraAmount,
     leaveEncashmentAmount,
     halfDayDeduction,
-    totalSalary,
+    totalSalary: resolvedTotalSalary,
     loanAmount: totalLoanAmount,
     holidayBreakdown,
     sundayCompensation: {
@@ -737,10 +795,15 @@ const upsertPayroll = async ({
   employee,
   month,
   year,
+  fullDays,
+  halfDays,
+  paidLeaves,
+  unpaidDays,
   overtimeHours,
-  penalties = 0,
+  penalties,
   loanAmount,
   extraAmount = 0,
+  netPay,
   status = 'unpaid',
   processedBy,
 }) => {
@@ -749,17 +812,22 @@ const upsertPayroll = async ({
     employee,
     month,
     year,
+    fullDays,
+    halfDays,
+    paidLeaves,
+    unpaidDays,
     overtimeHours,
     penalties,
     loanAmount,
     extraAmount,
+    netPay,
     payrollSettings,
     processedBy,
     persistSundayCompensation: true,
   });
 
   const salaryDeductions =
-    Number(penalties || 0) +
+    Number(payrollValues.penalties || 0) +
     Number(payrollValues.loanAmount || 0) +
     payrollValues.unpaidDays * payrollValues.dailyWage +
     payrollValues.halfDayDeduction;
@@ -840,7 +908,7 @@ const upsertPayroll = async ({
       unpaidDays: payrollValues.unpaidDays,
       overtimeHours: Number(payrollValues.overtimeHours || 0),
       overtimeAmount: payrollValues.overtimeAmount,
-      penalties: Number(penalties || 0),
+      penalties: Number(payrollValues.penalties || 0),
       loanAmount: Number(payrollValues.loanAmount || 0),
       extraAmount: Number(payrollValues.extraAmount || 0),
       leaveEncashmentAmount: Number(payrollValues.leaveEncashmentAmount || 0),
@@ -923,7 +991,7 @@ export const recomputePayrollForAttendanceChange = async ({
     month: Number(month),
     year: Number(year),
     overtimeHours: undefined, // Recalculate automatically
-    penalties: existingPayroll?.penalties ?? 0,
+    penalties: existingPayroll?.penalties,
     loanAmount: existingPayroll?.loanAmount,
     status: existingPayroll?.status || 'unpaid',
     processedBy,
@@ -1038,9 +1106,15 @@ export const processPayrollForEmployee = async (req, res) => {
       employee,
       month,
       year,
+      fullDays: req.body.fullDays,
+      halfDays: req.body.halfDays,
+      paidLeaves: req.body.paidLeaves,
+      unpaidDays: req.body.unpaidDays,
       overtimeHours: req.body.overtimeHours,
-      penalties: req.body.penalties ?? 0,
+      penalties: req.body.penalties,
       loanAmount: req.body.loanAmount,
+      extraAmount: req.body.extraAmount,
+      netPay: req.body.netPay,
       status: req.body.status || 'unpaid',
       processedBy: req.user?._id,
     });
@@ -1216,7 +1290,7 @@ export const getPayrollPreview = async (req, res) => {
           month: Number(month),
           year: Number(year),
           overtimeHours: undefined,
-          penalties: 0,
+          penalties: undefined,
           loanAmount: undefined,
           extraAmount: undefined,
           payrollSettings,
@@ -1234,7 +1308,7 @@ export const getPayrollPreview = async (req, res) => {
           unpaidDays: payrollValues.unpaidDays,
           overtimeHours: payrollValues.overtimeHours,
           overtimeAmount: payrollValues.overtimeAmount,
-          penalties: 0,
+          penalties: payrollValues.penalties,
           loanAmount: payrollValues.loanAmount,
           extraAmount: payrollValues.extraAmount,
           leaveEncashmentAmount: payrollValues.leaveEncashmentAmount,
