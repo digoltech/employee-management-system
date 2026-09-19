@@ -1,0 +1,232 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-primary: 'Poppins';
+  --font-secondary: 'Poppins';
+  --font-tertiary: 'Poppins';
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-primary), ui-sans-serif, system-ui;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+}
+
+h1 {
+  font-weight: 800;
+  line-height: 1.1;
+  font-size: clamp(1.875rem, 1.35rem + 1.6vw, 2.75rem);
+}
+
+h2 {
+  font-weight: 700;
+  font-size: clamp(1.5rem, 1.2rem + 1.1vw, 2.1rem);
+}
+
+h3 {
+  font-weight: 700;
+  font-size: clamp(1.25rem, 1.06rem + 0.72vw, 1.7rem);
+}
+
+h4,
+h5,
+h6 {
+  font-weight: 600;
+}
+
+h4 {
+  font-size: clamp(1.125rem, 1.02rem + 0.42vw, 1.35rem);
+}
+
+h5 {
+  font-size: clamp(1rem, 0.95rem + 0.22vw, 1.12rem);
+}
+
+h6 {
+  font-size: 0.95rem;
+  letter-spacing: -0.01em;
+}
+
+p,
+li,
+label,
+input,
+textarea,
+select,
+button {
+  line-height: 1.55;
+}
+
+/* Global Styling */
+body {
+  @apply bg-light-bg dark:bg-dark-bg text-light-text dark:text-dark-text font-sans;
+  margin: 0;
+  padding: 0;
+  letter-spacing: -0.005em;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Link Styling */
+a {
+  @apply text-blue-600 hover:underline font-medium;
+}
+
+/* Form Input Styling */
+input,
+textarea,
+select {
+  @apply border border-gray-300 rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500;
+}
+
+/* Button Styling */
+button {
+  @apply px-4 py-2 rounded-md font-medium transition-colors;
+}
+button.primary {
+  @apply bg-blue-600 text-white hover:bg-blue-700;
+}
+button.secondary {
+  @apply bg-gray-200 text-gray-700 hover:bg-gray-300;
+}
+
+/* Custom Utility Overrides */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-300 rounded-full;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-400;
+}
+
+/* Hide scrollbar but keep scrolling */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Sidebar glass effect */
+.glass-sidebar {
+  background: linear-gradient(
+    135deg,
+    rgba(229, 229, 231, 0.45) 0%,
+    rgba(203, 213, 225, 0.329) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  box-shadow:
+    0 14px 34px rgba(15, 23, 42, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+}
+
+.dark .glass-sidebar {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.28) 0%, rgba(15, 23, 42, 0.16) 100%);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.admin-sticky-columns {
+  --admin-sticky-col-1-width: 14rem;
+  --admin-sticky-col-2-width: 16rem;
+  --admin-sticky-body-bg: #f5f5f5;
+  --admin-sticky-head-bg: #f3f5f7;
+  --admin-sticky-hover-bg: #f1f5f9;
+  --admin-sticky-warning-bg: #f6eed2;
+}
+
+.admin-sticky-columns th:nth-child(1),
+.admin-sticky-columns td:nth-child(1) {
+  position: sticky;
+  left: 0;
+  z-index: 10;
+  min-width: var(--admin-sticky-col-1-width);
+  width: var(--admin-sticky-col-1-width);
+  max-width: var(--admin-sticky-col-1-width);
+  box-sizing: border-box;
+  background: var(--admin-sticky-body-bg);
+  background-clip: padding-box;
+  white-space: nowrap;
+}
+
+.admin-sticky-columns th:nth-child(2),
+.admin-sticky-columns td:nth-child(2) {
+  position: sticky;
+  left: var(--admin-sticky-col-1-width);
+  z-index: 10;
+  min-width: var(--admin-sticky-col-2-width);
+  width: var(--admin-sticky-col-2-width);
+  max-width: var(--admin-sticky-col-2-width);
+  box-sizing: border-box;
+  background: var(--admin-sticky-body-bg);
+  background-clip: padding-box;
+  white-space: nowrap;
+}
+
+.admin-sticky-columns thead th:nth-child(1),
+.admin-sticky-columns thead th:nth-child(2) {
+  background: var(--admin-sticky-head-bg);
+}
+
+.admin-sticky-columns tbody tr:hover td:nth-child(1),
+.admin-sticky-columns tbody tr:hover td:nth-child(2) {
+  background: var(--admin-sticky-hover-bg);
+}
+
+.admin-sticky-columns tbody tr.bg-warning\/20 td:nth-child(1),
+.admin-sticky-columns tbody tr.bg-warning\/20 td:nth-child(2) {
+  background: var(--admin-sticky-warning-bg);
+}
+
+.admin-sticky-columns thead th:nth-child(1),
+.admin-sticky-columns thead th:nth-child(2) {
+  z-index: 20;
+}
+
+.dark .admin-sticky-columns {
+  --admin-sticky-body-bg: #1e293b;
+  --admin-sticky-head-bg: #172033;
+  --admin-sticky-hover-bg: #0f172a;
+  --admin-sticky-warning-bg: #51451d;
+}
+
+.dark .admin-sticky-columns th:nth-child(1),
+.dark .admin-sticky-columns td:nth-child(1),
+.dark .admin-sticky-columns th:nth-child(2),
+.dark .admin-sticky-columns td:nth-child(2) {
+  background: var(--admin-sticky-body-bg);
+}
+
+.dark .admin-sticky-columns thead th:nth-child(1),
+.dark .admin-sticky-columns thead th:nth-child(2) {
+  background: var(--admin-sticky-head-bg);
+}
+
+.dark .admin-sticky-columns tbody tr:hover td:nth-child(1),
+.dark .admin-sticky-columns tbody tr:hover td:nth-child(2) {
+  background: var(--admin-sticky-hover-bg);
+}
+
+.dark .admin-sticky-columns tbody tr.bg-warning\/20 td:nth-child(1),
+.dark .admin-sticky-columns tbody tr.bg-warning\/20 td:nth-child(2) {
+  background: var(--admin-sticky-warning-bg);
+}
