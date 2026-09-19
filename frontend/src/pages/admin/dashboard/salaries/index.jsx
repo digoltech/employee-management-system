@@ -2542,7 +2542,7 @@ const AdminSalaryManagement = () => {
 
   return (
     <div
-      className="min-h-screen px-6 py-6 lg:ml-16 bg-light-bg dark:bg-dark-bg text-light-text dark:text-dark-text"
+      className="min-h-screen px-4 py-4 sm:px-6 sm:py-6 lg:ml-16 bg-light-bg dark:bg-dark-bg text-light-text dark:text-dark-text"
       style={headerFont}
     >
       <div className="max-w-7xl mx-auto">
@@ -4324,7 +4324,7 @@ const AdminSalaryManagement = () => {
 };
 
 const SalaryDashboardSkeleton = () => (
-  <div className="min-h-screen px-6 py-6 lg:ml-16 bg-light-bg dark:bg-dark-bg text-light-text dark:text-dark-text">
+  <div className="min-h-screen px-4 py-4 sm:px-6 sm:py-6 lg:ml-16 bg-light-bg dark:bg-dark-bg text-light-text dark:text-dark-text">
     <div className="max-w-7xl mx-auto space-y-6 animate-pulse">
       <div className="rounded-2xl border border-light-border dark:border-dark-border bg-light-card dark:bg-dark-card p-6 space-y-4">
         <div className="h-5 w-32 rounded bg-light-bg dark:bg-dark-bg" />

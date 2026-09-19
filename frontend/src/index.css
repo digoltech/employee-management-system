@@ -71,10 +71,48 @@ body {
   @apply bg-light-bg dark:bg-dark-bg text-light-text dark:text-dark-text font-sans;
   margin: 0;
   padding: 0;
+  min-width: 0;
+  overflow-x: hidden;
   letter-spacing: -0.005em;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
+}
+
+button,
+input,
+textarea,
+select {
+  max-width: 100%;
+}
+
+@media (max-width: 639px) {
+  .admin-sticky-columns th:nth-child(1),
+  .admin-sticky-columns td:nth-child(1),
+  .admin-sticky-columns th:nth-child(2),
+  .admin-sticky-columns td:nth-child(2) {
+    position: static;
+    left: auto;
+    min-width: 0;
+    width: auto;
+    max-width: none;
+    white-space: normal;
+  }
+
+  .admin-sticky-columns {
+    min-width: 42rem;
+  }
 }
 
 /* Link Styling */

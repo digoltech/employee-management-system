@@ -171,7 +171,7 @@ const AdminEmployeeSalaryProfile = () => {
   }
 
   return (
-    <div className="ml-10 p-6 min-h-screen bg-light-bg dark:bg-dark-bg text-light-text dark:text-dark-text">
+    <div className="ml-0 p-4 sm:p-6 lg:ml-10 min-h-screen bg-light-bg dark:bg-dark-bg text-light-text dark:text-dark-text">
       <div className="max-w-5xl mx-auto p-6 space-y-6">
         <button
           onClick={handleBack}

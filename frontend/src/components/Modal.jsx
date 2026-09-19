@@ -49,8 +49,10 @@ const Modal = ({ isOpen, onClose, title, children, size = 'md' }) => {
         style={{ transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)' }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-light-border/70 dark:border-dark-border p-6 shrink-0">
-          <h2 className="text-xl font-semibold text-light-text dark:text-dark-text">{title}</h2>
+        <div className="flex items-center justify-between gap-3 border-b border-light-border/70 dark:border-dark-border p-4 sm:p-6 shrink-0">
+          <h2 className="min-w-0 break-words text-lg font-semibold text-light-text dark:text-dark-text sm:text-xl">
+            {title}
+          </h2>
           <button
             onClick={onClose}
             className="p-1 rounded-lg hover:bg-light-bg dark:hover:bg-dark-bg transition-colors"
@@ -61,7 +63,7 @@ const Modal = ({ isOpen, onClose, title, children, size = 'md' }) => {
 
         {/* Content */}
         <div
-          className="p-6 overflow-y-auto modal-hide-scrollbar"
+          className="p-4 overflow-y-auto modal-hide-scrollbar sm:p-6"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
           {children}

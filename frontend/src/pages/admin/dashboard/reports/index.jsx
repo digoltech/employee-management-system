@@ -3606,7 +3606,7 @@ const AdminReports = () => {
   };
 
   return (
-    <div className="min-h-screen px-6 py-6 lg:ml-16 bg-light-bg dark:bg-dark-bg text-light-text dark:text-dark-text">
+    <div className="min-h-screen px-4 py-4 sm:px-6 sm:py-6 lg:ml-16 bg-light-bg dark:bg-dark-bg text-light-text dark:text-dark-text">
       <div className="max-w-7xl mx-auto">
         <Header
           title="Reports"

@@ -225,7 +225,7 @@ const AdminAttendanceSettings = () => {
   ];
 
   return (
-    <div className="relative p-6 min-h-screen bg-light-bg dark:bg-dark-bg transition-colors duration-300">
+    <div className="relative p-4 sm:p-6 min-h-screen bg-light-bg dark:bg-dark-bg transition-colors duration-300">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8 border-b border-light-border dark:border-dark-border pb-4">
