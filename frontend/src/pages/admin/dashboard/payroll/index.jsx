@@ -355,6 +355,7 @@ const AdminPayroll = () => {
           const halfDayDeduction = Number(panelDeductions.halfDay || 0);
           const absentDeduction = Number(panelDeductions.absent || 0);
           const manualPenalty = Number(payroll?.penalties || 0);
+          const professionalTax = Number(payroll?.professionalTax || 0);
           const totalPenalty =
             lateCheckinDeduction + halfDayDeduction + absentDeduction + manualPenalty;
 
@@ -438,6 +439,10 @@ const AdminPayroll = () => {
                 <div className="flex items-center justify-between text-sm">
                   <span>Manual Penalties</span>
                   <span>₹{manualPenalty.toFixed(2)}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span>Professional Tax</span>
+                  <span>₹{professionalTax.toFixed(2)}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span>Total Penalty</span>

@@ -38,6 +38,10 @@ const payrollSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    professionalTax: {
+      type: Number,
+      default: 0,
+    },
     loanAmount: {
       type: Number,
       default: 0,

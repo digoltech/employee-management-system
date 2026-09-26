@@ -723,6 +723,7 @@ const computePayroll = async ({
       : Math.round((autoOvertimeMinutes / 60) * 100) / 100;
   const overtimeAmount = resolvedOvertimeHours * overtimeRate;
   const halfDayDeduction = resolvedHalfDays * dailyWage * 0.5;
+  const professionalTax = baseSalary > 12000 ? 200 : 0;
   const defaultExtra = Number(payrollSettings?.extras?.defaultExtra || 0);
   const normalizedExtraAmount =
     extraAmount !== undefined && extraAmount !== null ? Number(extraAmount || 0) : defaultExtra;
@@ -738,6 +739,7 @@ const computePayroll = async ({
     resolvedPenalties -
     totalLoanAmount +
     leaveEncashmentAmount -
+    professionalTax -
     (unpaidDays === undefined ? 0 : resolvedUnpaidDays * dailyWage);
   const resolvedTotalSalary = netPay === undefined ? totalSalary : Number(netPay || 0);
 
@@ -767,6 +769,7 @@ const computePayroll = async ({
     extraAmount: totalExtraAmount,
     leaveEncashmentAmount,
     halfDayDeduction,
+    professionalTax,
     totalSalary: resolvedTotalSalary,
     loanAmount: totalLoanAmount,
     holidayBreakdown,
@@ -830,7 +833,8 @@ const upsertPayroll = async ({
     Number(payrollValues.penalties || 0) +
     Number(payrollValues.loanAmount || 0) +
     payrollValues.unpaidDays * payrollValues.dailyWage +
-    payrollValues.halfDayDeduction;
+    payrollValues.halfDayDeduction +
+    payrollValues.professionalTax;
   const salaryBonuses =
     Number(payrollValues.extraAmount || 0) +
     Number(payrollValues.leaveEncashmentAmount || 0) +
@@ -909,6 +913,7 @@ const upsertPayroll = async ({
       overtimeHours: Number(payrollValues.overtimeHours || 0),
       overtimeAmount: payrollValues.overtimeAmount,
       penalties: Number(payrollValues.penalties || 0),
+      professionalTax: Number(payrollValues.professionalTax || 0),
       loanAmount: Number(payrollValues.loanAmount || 0),
       extraAmount: Number(payrollValues.extraAmount || 0),
       leaveEncashmentAmount: Number(payrollValues.leaveEncashmentAmount || 0),
@@ -1309,6 +1314,7 @@ export const getPayrollPreview = async (req, res) => {
           overtimeHours: payrollValues.overtimeHours,
           overtimeAmount: payrollValues.overtimeAmount,
           penalties: payrollValues.penalties,
+          professionalTax: payrollValues.professionalTax,
           loanAmount: payrollValues.loanAmount,
           extraAmount: payrollValues.extraAmount,
           leaveEncashmentAmount: payrollValues.leaveEncashmentAmount,
