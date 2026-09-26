@@ -2,8 +2,7 @@ import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 
 const fallbackOrigins = [
-  'https://company.theonebranding.com',
-  'https://theone-it-frontend.vercel.app',
+  'https://company.digoltech.com',
   'http://localhost:5173',
   'http://localhost:5174',
 ];
