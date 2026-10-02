@@ -1154,7 +1154,7 @@ export const processPayrollForAll = async (req, res) => {
       });
     }
 
-    const employees = await Employee.find();
+    const employees = await Employee.find({ employmentStatus: { $nin: ['relieved', 'deleting'] } });
 
     const payrolls = [];
     const skipped = [];
@@ -1213,12 +1213,13 @@ export const getPayrolls = async (req, res) => {
       all,
       employeeIds,
     } = req.query;
-    const query = {};
+    const activeIds = await Employee.find({ employmentStatus: { $nin: ['relieved', 'deleting'] } }).distinct('_id');
+    const query = { employee: { $in: activeIds } };
     if (status) query.status = status;
 
     if (employeeIds) {
       const ids = employeeIds.split(',').filter(Boolean);
-      query.employee = { $in: ids };
+      query.employee = { $in: ids.filter((id) => activeIds.some((activeId) => String(activeId) === id)) };
     }
 
     if (month && year) {
@@ -1285,7 +1286,7 @@ export const getPayrolls = async (req, res) => {
 export const getPayrollPreview = async (req, res) => {
   try {
     const { month, year } = req.query;
-    const employees = await Employee.find();
+    const employees = await Employee.find({ employmentStatus: { $nin: ['relieved', 'deleting'] } });
     const payrollSettings = await resolvePayrollSettings();
 
     const previewPayrolls = await Promise.all(

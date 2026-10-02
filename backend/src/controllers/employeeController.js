@@ -3,6 +3,7 @@ import EmployeeSequence from '../models/employeeSequenceSchema.js';
 import bcrypt from 'bcrypt';
 import { forfeitEmployeeCredits } from '../services/holidayCreditService.js';
 import { sendOnboardingInvitationEmail } from '../services/emailService.js';
+import mongoose from 'mongoose';
 
 // Statuses that represent an employee leaving the company. When an employee
 // transitions into one of these states (or is hard-deleted), all of their
@@ -358,6 +359,10 @@ export const updateEmployee = async (req, res) => {
       'isVerified',
       'createdAt',
       'salary',
+      'employmentStatus',
+      'isActive',
+      'relievedDate',
+      'reliefReason',
     ];
     const updates = Object.keys(updateFields).reduce((acc, field) => {
       if (!restrictedFields.includes(field)) {
@@ -422,9 +427,12 @@ export const updateEmployee = async (req, res) => {
     // Capture previous onboardingStatus so we can detect a transition into
     // `terminated` / `inactive` and trigger the holiday-credit forfeit hook
     // exactly once per transition (Requirement 12.1).
-    const previousEmployee = await Employee.findById(req.params.id).select('onboardingStatus');
+    const previousEmployee = await Employee.findById(req.params.id).select('onboardingStatus employmentStatus');
     if (!previousEmployee) {
       return res.status(404).json({ message: 'Employee not found' });
+    }
+    if (previousEmployee.employmentStatus === 'relieved' || previousEmployee.employmentStatus === 'deleting') {
+      return res.status(403).json({ message: 'Past employee records cannot be edited' });
     }
     const previousStatus = previousEmployee.onboardingStatus;
 
@@ -467,19 +475,12 @@ export const deleteEmployee = async (req, res) => {
       return res.status(400).json({ message: 'Bad Request: No employee ID provided' });
     }
 
-    // Find and delete the employee in one step
-    const deletedEmployee = await Employee.findByIdAndDelete(id);
-
-    if (!deletedEmployee) {
+    const employee = await Employee.findByIdAndUpdate(id, { employmentStatus: 'deleting', isActive: false }, { new: true });
+    if (!employee) {
       return res.status(404).json({ message: 'Employee not found' });
     }
-
-    // Hard-delete is the effective termination path in this system; forfeit
-    // any remaining `available` holiday credits so they cannot be redeemed
-    // post-departure (Requirement 12.1).
-    await safeForfeitEmployeeCredits(deletedEmployee._id);
-
-    return res.status(200).json({ message: 'Employee deleted successfully' });
+    setImmediate(() => purgeEmployeeData(employee._id));
+    return res.status(202).json({ message: 'Employee deletion started in the background' });
   } catch (error) {
     return res.status(500).json({ message: 'Error deleting employee', error: error.message });
   }
@@ -495,22 +496,81 @@ export const deleteEmployeeByCode = async (req, res) => {
     }
 
     const normalizedCode = employeeCode.trim().toUpperCase();
-    const deletedEmployee = await Employee.findOneAndDelete({ employeeCode: normalizedCode });
-
-    if (!deletedEmployee) {
+    const employee = await Employee.findOneAndUpdate(
+      { employeeCode: normalizedCode },
+      { employmentStatus: 'deleting', isActive: false },
+      { new: true }
+    );
+    if (!employee) {
       return res.status(404).json({ message: 'Employee not found' });
     }
-
-    // Same forfeit semantics as deleteEmployee: hard-delete acts as the
-    // termination event, so any `available` floating credits are forfeited
-    // (Requirement 12.1).
-    await safeForfeitEmployeeCredits(deletedEmployee._id);
-
-    return res
-      .status(200)
-      .json({ message: 'Employee deleted successfully', employee: deletedEmployee });
+    setImmediate(() => purgeEmployeeData(employee._id));
+    return res.status(202).json({ message: 'Employee deletion started in the background' });
   } catch (error) {
     return res.status(500).json({ message: 'Error deleting employee', error: error.message });
+  }
+};
+
+// Keep the employee until all dependent records are removed. A failed purge can
+// be retried through either delete endpoint without losing the employee ID.
+const purgeEmployeeData = async (employeeId) => {
+  try {
+    const collection = (name) => mongoose.connection.db.collection(name);
+    const payrollIds = await collection('payrolls')
+      .find({ employee: employeeId }, { projection: { _id: 1 } })
+      .toArray();
+    if (payrollIds.length) {
+      await collection('payrollhistories').deleteMany({
+        payroll: { $in: payrollIds.map((payroll) => payroll._id) },
+      });
+    }
+    const names = [
+      'attendances', 'dailyreports', 'extraallowances', 'holidaycredits',
+      'latecheckins', 'leaves', 'payrolls',
+      'salaries', 'loanadvances', 'selectedholidays',
+      'leavetemplateassignments', 'templateassignments',
+    ];
+    for (const name of names) {
+      await collection(name).deleteMany({ employee: employeeId });
+    }
+    const tasks = await collection('tasks').find({ assignedTo: employeeId }, { projection: { _id: 1 } }).toArray();
+    if (tasks.length) {
+      await collection('taskcomments').deleteMany({ task: { $in: tasks.map((task) => task._id) } });
+    }
+    await collection('taskcomments').deleteMany({ author: employeeId });
+    await collection('tasks').deleteMany({ assignedTo: employeeId });
+    await collection('tasks').updateMany(
+      { assignedEmployeeIds: employeeId },
+      { $pull: { assignedEmployeeIds: employeeId } }
+    );
+    await Employee.findByIdAndDelete(employeeId);
+  } catch (error) {
+    console.error('Employee background deletion failed:', employeeId, error);
+  }
+};
+
+export const resumePendingEmployeeDeletions = async () => {
+  const pending = await Employee.find({ employmentStatus: 'deleting' }).select('_id').lean();
+  for (const employee of pending) setImmediate(() => purgeEmployeeData(employee._id));
+};
+
+export const relieveEmployee = async (req, res) => {
+  try {
+    const { reliefDate, reason = '' } = req.body;
+    const parsed = /^\d{4}-\d{2}-\d{2}$/.test(reliefDate || '') ? new Date(`${reliefDate}T00:00:00.000Z`) : null;
+    if (!parsed || Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== reliefDate) {
+      return res.status(400).json({ message: 'A valid relief date is required' });
+    }
+    const employee = await Employee.findOneAndUpdate(
+      { _id: req.params.id, employmentStatus: { $nin: ['relieved', 'deleting'] } },
+      { employmentStatus: 'relieved', isActive: false, relievedDate: parsed, reliefReason: String(reason).trim().slice(0, 2000) },
+      { new: true }
+    ).select('-password -otp -otpExpires');
+    if (!employee) return res.status(404).json({ message: 'Active employee not found' });
+    await safeForfeitEmployeeCredits(employee._id);
+    return res.status(200).json({ message: 'Employee relieved', employee });
+  } catch (error) {
+    return res.status(500).json({ message: 'Error relieving employee', error: error.message });
   }
 };
 
@@ -522,7 +582,10 @@ export const getAllEmployees = async (req, res) => {
     const skip = (page - 1) * limit;
 
     // Fetch employees with pagination
-    const employees = await Employee.find()
+    const filter = req.query.status === 'past'
+      ? { employmentStatus: 'relieved' }
+      : { employmentStatus: { $nin: ['relieved', 'deleting'] } };
+    const employees = await Employee.find(filter)
       .skip(skip)
       .limit(limit)
       .sort({ createdAt: -1 })
@@ -530,7 +593,7 @@ export const getAllEmployees = async (req, res) => {
       .lean();
 
     // Get total count of employees for pagination meta
-    const totalEmployees = await Employee.countDocuments();
+    const totalEmployees = await Employee.countDocuments(filter);
 
     res.status(200).json({
       message: 'Employee list fetched successfully',
@@ -556,7 +619,7 @@ export const getMyProfile = async (req, res) => {
       return res.status(401).json({ message: 'Unauthorized: Invalid or missing token' });
     }
 
-    const employee = await Employee.findById(_id).select(
+    const employee = await Employee.findOne({ _id, employmentStatus: { $nin: ['relieved', 'deleting'] } }).select(
       '-password -isVerified -otp -otpExpires -role -createdAt -updatedAt -__v -salary'
     );
 
@@ -593,6 +656,9 @@ export const getEmployee = async (req, res) => {
     };
 
     // Find employee
+    query.employmentStatus = req.user.role === 'admin' && req.query.includePast === '1'
+      ? 'relieved'
+      : { $nin: ['relieved', 'deleting'] };
     const employee = await Employee.findOne(query).select('-password -role -otp -otpExpires');
 
     if (!employee) {

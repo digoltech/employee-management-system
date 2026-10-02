@@ -158,7 +158,10 @@ export const deleteOwnDailyReport = async (req, res) => {
 export const listDailyReports = async (req, res) => {
   try {
     const { search, employee, startDate, endDate, status, page, limit } = req.query;
-    const query = {};
+    const activeEmployees = await Employee.find({
+      employmentStatus: { $nin: ['relieved', 'deleting'] },
+    }).distinct('_id');
+    const query = { employee: { $in: activeEmployees } };
 
     if (employee) {
       query.employee = employee;

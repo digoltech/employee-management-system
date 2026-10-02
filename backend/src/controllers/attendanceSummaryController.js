@@ -45,7 +45,7 @@ export const getDailyAttendance = async (req, res) => {
     const dayEnd = getEndOfIstDay(dayStart);
 
     // Get all employees count
-    const totalEmployees = await Employee.countDocuments();
+    const totalEmployees = await Employee.countDocuments({ employmentStatus: { $nin: ['relieved', 'deleting'] } });
     const settings = await AdminAttendanceSettings.findOne().lean();
 
     // Pull every employee on holiday for this day so we can stamp the live
@@ -71,6 +71,7 @@ export const getDailyAttendance = async (req, res) => {
         },
       },
       { $unwind: '$employeeDetails' },
+      { $match: { 'employeeDetails.employmentStatus': { $nin: ['relieved', 'deleting'] } } },
       {
         $project: {
           date: '$date',
@@ -237,7 +238,9 @@ export const getMonthlyAttendance = async (req, res) => {
     // Admin monthly report mode: return all attendance entries for selected month.
     if (req.user.role === 'admin' && !employeeId) {
       const settings = await AdminAttendanceSettings.findOne().lean();
+      const activeIds = await Employee.find({ employmentStatus: { $nin: ['relieved', 'deleting'] } }).distinct('_id');
       const records = await Attendance.find({
+        employee: { $in: activeIds },
         date: { $gte: startDate, $lte: endDate },
       })
         .populate('employee', 'name email employeeCode')
@@ -509,7 +512,7 @@ export const getAbsenteeList = async (req, res) => {
     }
 
     // Step 1: Fetch all employees
-    const allEmployees = await Employee.find({}, '_id name email employeeCode');
+    const allEmployees = await Employee.find({ employmentStatus: { $nin: ['relieved', 'deleting'] } }, '_id name email employeeCode');
 
     const settings = await AdminAttendanceSettings.findOne().lean();
 
@@ -874,7 +877,7 @@ export const getPresentList = async (req, res) => {
       return getIstDayOfWeek(record.date) === 0 && ['absent', 'leave'].includes(resolvedStatus);
     };
 
-    const allEmployees = await Employee.find({}, '_id name email employeeCode');
+    const allEmployees = await Employee.find({ employmentStatus: { $nin: ['relieved', 'deleting'] } }, '_id name email employeeCode');
     const attendanceRecords = await Attendance.find({
       date: { $gte: start, $lte: endOfDay },
     });

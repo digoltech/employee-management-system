@@ -8,6 +8,7 @@ import {
   addPredefinedCheckInTime,
   deleteEmployee,
   deleteEmployeeByCode,
+  relieveEmployee,
   addEmployeeDocument,
   deleteEmployeeDocument,
 } from '../controllers/employeeController.js';
@@ -38,6 +39,7 @@ router.delete(
 );
 
 router.delete('/delete/:id?', verifyToken, checkRole(['admin']), deleteEmployee);
+router.post('/:id/relieve', verifyToken, checkRole(['admin']), relieveEmployee);
 
 router.delete(
   '/delete-by-code/:employeeCode',

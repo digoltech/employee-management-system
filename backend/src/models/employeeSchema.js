@@ -8,6 +8,10 @@ const employeeSchema = new mongoose.Schema(
     phoneNumber: { type: String, unique: true, required: true },
     password: { type: String, required: true },
     role: { type: String, default: 'employee' },
+    employmentStatus: { type: String, enum: ['active', 'relieved', 'deleting'], default: 'active' },
+    isActive: { type: Boolean, default: true },
+    relievedDate: { type: Date },
+    reliefReason: { type: String, default: '' },
     dateofBirth: { type: Date },
     // professional info
     department: { type: String },

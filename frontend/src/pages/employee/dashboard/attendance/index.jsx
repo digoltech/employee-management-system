@@ -14,6 +14,7 @@ import { toast, ToastContainer } from 'react-toastify';
 
 import Header from '../../../../components/pageHeader';
 import { useLocation } from '../../../../context/locationContext';
+
 import CheckoutModal from './components/checkoutModal';
 import HeaderSection from './components/headerSection';
 import LocationMap from './components/locationMap';
@@ -47,10 +48,10 @@ const getStatusColorHelper = status => {
 
 const getIsDisabled = (buttonStatus, status, loading) => {
   if (loading) return true;
-  if (status === STATUS_IN_RECESS) return buttonStatus !== 'end-recess';
-  if (status !== STATUS_CHECKED_IN && buttonStatus !== 'checkin') return true;
+  if (status === STATUS_IN_RECESS) return !['end-recess', 'checkout'].includes(buttonStatus);
+  if (status !== STATUS_CHECKED_IN && buttonStatus !== 'checkin' && !(status === STATUS_IN_RECESS && buttonStatus === 'checkout')) return true;
   if (buttonStatus === 'checkin' && status === STATUS_CHECKED_IN) return true;
-  if (buttonStatus === 'checkout' && (status === STATUS_CHECKED_OUT || status === STATUS_IN_RECESS))
+  if (buttonStatus === 'checkout' && status === STATUS_CHECKED_OUT)
     return true;
   if (
     buttonStatus === 'start-recess' &&
@@ -96,6 +97,7 @@ const Attendance = () => {
   const [isLate, setIsLate] = useState(false);
   const [countdown, setCountdown] = useState(10);
   const [showModal, setShowModal] = useState(false);
+  const [showReportWarning, setShowReportWarning] = useState(false);
   const [showCheckIn, setShowCheckIn] = useState(true);
   const [showBoth, setShowBoth] = useState(false);
   const { location: deviceLocation, isLocationPermissionGranted, requestLocation } = useLocation();
@@ -170,9 +172,19 @@ const Attendance = () => {
     return () => clearInterval(timer);
   }, [showModal, countdown]);
 
-  const handleButtonClick = action => {
+  const handleButtonClick = async action => {
     if (action === 'checkout') {
-      handleCheckoutConfirmation();
+      try {
+        const response = await fetch(`${BASE_URL}/attendance/status`, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+        });
+        if (!response.ok) throw new Error('Could not check daily report status');
+        const { data } = await response.json();
+        if (data.hasSubmittedDailyReport) handleCheckoutConfirmation();
+        else setShowReportWarning(true);
+      } catch (error) {
+        toast.error(error.message);
+      }
     } else {
       handleAttendanceAction(action);
     }
@@ -519,6 +531,22 @@ const Attendance = () => {
           setCountdown={setCountdown}
           handleAttendanceAction={handleAttendanceAction}
         />
+        {showReportWarning && (
+          <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Daily report required">
+            <div className="bg-light-card dark:bg-dark-card rounded-2xl p-6 max-w-md w-full text-light-text dark:text-dark-text">
+              <h2 className="text-xl font-semibold mb-3">Daily report is still pending</h2>
+              <p className="mb-6">Submit today's daily work report first. Checkout will happen automatically after you submit it.</p>
+              <div className="flex justify-end gap-3">
+                <button onClick={() => setShowReportWarning(false)} className="px-4 py-2 rounded-lg bg-light-bg dark:bg-dark-bg">Cancel</button>
+                <button onClick={() => {
+                  sessionStorage.setItem('pendingCheckoutAfterReport', '1');
+                  setShowReportWarning(false);
+                  navigate('/employee/dashboard/daily-work');
+                }} className="px-4 py-2 rounded-lg bg-primary text-white">Go to Daily Work</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
       <ToastContainer
         position="top-right"

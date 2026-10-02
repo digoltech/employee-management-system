@@ -67,6 +67,11 @@ export const getAllTasks = async (req, res) => {
   try {
     const query = {};
 
+    if (req.user.role === 'admin') {
+      const pastIds = await Employee.find({ employmentStatus: { $in: ['relieved', 'deleting'] } }).distinct('_id');
+      query.assignedTo = { $nin: pastIds };
+    }
+
     if (req.user.role === 'employee') {
       const employee = await Employee.findById(req.user._id).select('department designation');
       if (!employee) {
@@ -89,8 +94,8 @@ export const getAllTasks = async (req, res) => {
 
     const tasks = await Task.find(query)
       .populate('assignedTo', 'name email employeeCode department designation')
-      .populate('assignedEmployeeIds', 'name email employeeCode department designation')
-      .populate('completedBy', 'name email')
+      .populate({ path: 'assignedEmployeeIds', select: 'name email employeeCode department designation', match: { employmentStatus: { $nin: ['relieved', 'deleting'] } } })
+      .populate({ path: 'completedBy', select: 'name email', match: { employmentStatus: { $nin: ['relieved', 'deleting'] } } })
       .sort({ createdAt: -1 });
 
     return res.status(200).json({ message: 'Tasks fetched successfully', tasks });

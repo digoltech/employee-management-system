@@ -10,6 +10,9 @@ import {
   calculateWorkingMinutes,
   DEFAULT_CHECK_IN_TIME,
   getTimeOnDay,
+  DEFAULT_BREAK_START_TIME,
+  DEFAULT_BREAK_END_TIME,
+  getScheduledBreakDuration,
 } from '../utils/attendanceTimeUtils.js';
 
 const timeToMinutes = (time) => {
@@ -113,6 +116,10 @@ export const getCurrentStatus = async (req, res) => {
     // const lateCheckInMinutes = attendance.lateCheckInMinutes || 0;
 
     // Response
+    const dailyReport = await DailyReport.findOne({
+      employee: employeeId,
+      dayKey: getIstDayKey(),
+    }).select('reportText').lean();
     const response = {
       status,
       checkInTime: attendance.checkInTime || null,
@@ -136,6 +143,7 @@ export const getCurrentStatus = async (req, res) => {
       totalRecessDurationMs: totalRecessDurationInMilliseconds,
       liveWorkingTime: formatTime(liveWorkingMinutes * 60000),
       lateCheckIn,
+      hasSubmittedDailyReport: Boolean(dailyReport?.reportText?.trim() && dailyReport.reportText !== 'N/A'),
     };
 
     res.status(200).json({
@@ -336,20 +344,55 @@ export const checkOut = async (req, res) => {
       return res.status(400).json({ message: 'Cannot check out without checking in first' });
     }
 
-    if (attendance.isRecess) {
-      return res.status(400).json({ message: 'Cannot check out during an ongoing recess' });
+    if (attendance.checkOutTime) {
+      return res.status(400).json({ message: 'Already checked out for today' });
+    }
+    const existingDailyReport = await DailyReport.findOne({
+      employee: employeeId,
+      dayKey: getIstDayKey(),
+    });
+    if (!existingDailyReport?.reportText?.trim() || existingDailyReport.reportText === 'N/A') {
+      return res.status(400).json({ message: 'Please submit your daily work report before check-out' });
     }
 
     const { latitude: lat, longitude: lng } = parseLocation(req.body);
-
-    attendance.checkOutTime = new Date();
-    attendance.currentStatus = 'Checked Out';
-    attendance.checkOutLocation = {
-      latitude: lat,
-      longitude: lng,
-    };
-
     const settings = await AdminAttendanceSettings.findOne().lean();
+    const checkoutTime = new Date();
+    if (attendance.isRecess && attendance.recessStartTime) {
+      const scheduledEnd = getTimeOnDay(dayStart, DEFAULT_BREAK_END_TIME, DEFAULT_BREAK_END_TIME);
+      const recessEnd = new Date(Math.max(
+        new Date(attendance.recessStartTime).getTime(),
+        Math.min(scheduledEnd.getTime(), checkoutTime.getTime())
+      ));
+      const duration = recessEnd - new Date(attendance.recessStartTime);
+      const openSession = [...attendance.recessSessions].reverse().find((session) => !session.endTime);
+      if (openSession) {
+        openSession.endTime = recessEnd;
+        openSession.duration = duration;
+      }
+      attendance.totalRecessDuration += duration;
+      attendance.recessEndTime = recessEnd;
+      attendance.recessStartTime = null;
+      attendance.isRecess = false;
+    } else if (!attendance.recessSessions.length) {
+      const breakStart = getTimeOnDay(dayStart, DEFAULT_BREAK_START_TIME, DEFAULT_BREAK_START_TIME);
+      const breakEnd = getTimeOnDay(dayStart, DEFAULT_BREAK_END_TIME, DEFAULT_BREAK_END_TIME);
+      const duration = getScheduledBreakDuration({
+        dayStart,
+        intervalStart: attendance.checkInTime,
+        intervalEnd: checkoutTime,
+      });
+      if (duration > 0) {
+        const actualBreakStart = new Date(Math.max(breakStart.getTime(), new Date(attendance.checkInTime).getTime()));
+        const actualBreakEnd = new Date(Math.min(breakEnd.getTime(), checkoutTime.getTime()));
+        attendance.recessSessions.push({ startTime: actualBreakStart, endTime: actualBreakEnd, duration });
+        attendance.totalRecessDuration = duration;
+        attendance.recessEndTime = actualBreakEnd;
+      }
+    }
+    attendance.checkOutTime = checkoutTime;
+    attendance.currentStatus = 'Checked Out';
+    attendance.checkOutLocation = { latitude: lat, longitude: lng };
     const totalWorkingTimeInMinutes = calculateWorkingMinutes({
       dayStart,
       checkInTime: attendance.checkInTime,
@@ -369,23 +412,6 @@ export const checkOut = async (req, res) => {
       totalWorkingTimeInMinutes > halfDayThreshold
     ) {
       attendance.halfDay = true;
-    }
-
-    const existingDailyReport = await DailyReport.findOne({
-      employee: employeeId,
-      dayKey: getIstDayKey(),
-    });
-
-    const hasSubmittedDailyReport =
-      existingDailyReport &&
-      typeof existingDailyReport.reportText === 'string' &&
-      existingDailyReport.reportText.trim() !== '' &&
-      existingDailyReport.reportText !== 'N/A';
-
-    if (!hasSubmittedDailyReport) {
-      return res.status(400).json({
-        message: 'Please submit your daily work report before check-out',
-      });
     }
 
     await attendance.save();

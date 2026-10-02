@@ -361,7 +361,8 @@ export const getPayslipHtmlBySalaryId = async (req, res) => {
 // Get all salaries
 export const getAllSalaries = async (req, res) => {
   try {
-    const salaries = await Salary.find()
+    const activeIds = await Employee.find({ employmentStatus: { $nin: ['relieved', 'deleting'] } }).distinct('_id');
+    const salaries = await Salary.find({ employee: { $in: activeIds } })
       .populate('employee', 'name email')
       .sort({ paymentDate: -1, createdAt: -1 });
     return res.status(200).json({ message: 'Salaries fetched successfully', salaries });

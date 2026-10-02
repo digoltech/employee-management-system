@@ -286,7 +286,7 @@ const InformationTab = () => {
   const fetchEmployeeData = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${BASE_URL}/employee/find?id=${id}`, {
+      const response = await fetch(`${BASE_URL}/employee/find?id=${id}${new URLSearchParams(window.location.search).get('past') === '1' ? '&includePast=1' : ''}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
       if (!response.ok) throw new Error('Failed to fetch employee details.');
@@ -509,7 +509,7 @@ const InformationTab = () => {
         <h1 className="text-2xl font-bold text-light-text dark:text-dark-text">
           Employee Information
         </h1>
-        {editing ? (
+        {new URLSearchParams(window.location.search).get('past') === '1' ? null : editing ? (
           <button
             onClick={updateEmployeeData}
             className="bg-success hover:bg-success/80 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"

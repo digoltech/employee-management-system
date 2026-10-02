@@ -154,12 +154,12 @@ export const getEmployeesWithTemplate = async (req, res) => {
     const skip = (Number(page) - 1) * Number(limit);
 
     const [employees, total] = await Promise.all([
-      Employee.find()
+      Employee.find({ employmentStatus: { $nin: ['relieved', 'deleting'] } })
         .select('_id name employeeCode department designation')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(Number(limit)),
-      Employee.countDocuments(),
+      Employee.countDocuments({ employmentStatus: { $nin: ['relieved', 'deleting'] } }),
     ]);
 
     const assignments = await LeaveTemplateAssignment.find({

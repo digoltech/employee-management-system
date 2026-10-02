@@ -165,7 +165,8 @@ export const getAllLeaves = async (req, res) => {
   try {
     const { page = 1, limit = 10, status, startDate, endDate, employeeEmail } = req.query;
 
-    const filters = {};
+    const activeIds = await Employee.find({ employmentStatus: { $nin: ['relieved', 'deleting'] } }).distinct('_id');
+    const filters = { employee: { $in: activeIds } };
     if (status) filters.status = status;
     if (startDate && endDate) {
       filters.startDate = { $gte: new Date(startDate) };
@@ -173,8 +174,8 @@ export const getAllLeaves = async (req, res) => {
     }
 
     if (employeeEmail) {
-      const employee = await Employee.findOne({ email: employeeEmail }).select('_id');
-      if (employee) filters.employee = employee._id;
+      const employee = await Employee.findOne({ email: employeeEmail, employmentStatus: { $nin: ['relieved', 'deleting'] } }).select('_id');
+      filters.employee = employee?._id || null;
     }
 
     const leaves = await Leave.find(filters)

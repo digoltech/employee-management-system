@@ -28,13 +28,14 @@ const AdminManageEmployees = () => {
   const [isSearchActive, setIsSearchActive] = useState(false);
   const [uniqueDepartments, setUniqueDepartments] = useState([]);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [employeeStatus, setEmployeeStatus] = useState('active');
 
   const BASE_URL = import.meta.env.VITE_BACKEND_URL;
 
   const fetchEmployees = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${BASE_URL}/employee/all?page=1&limit=1000`, {
+      const response = await fetch(`${BASE_URL}/employee/all?page=1&limit=1000&status=${employeeStatus}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
 
@@ -58,7 +59,7 @@ const AdminManageEmployees = () => {
   useEffect(() => {
     fetchEmployees();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [employeeStatus]);
 
   const handleSearch = async () => {
     if (!searchTerm.trim()) {
@@ -69,7 +70,7 @@ const AdminManageEmployees = () => {
     setLoading(true);
     try {
       const response = await fetch(
-        `${BASE_URL}/employee/find?name=${encodeURIComponent(searchTerm)}`,
+        `${BASE_URL}/employee/find?name=${encodeURIComponent(searchTerm)}${employeeStatus === 'past' ? '&includePast=1' : ''}`,
         {
           headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
         }
@@ -187,6 +188,26 @@ const AdminManageEmployees = () => {
           </div>
         </div>
 
+        <div className="flex gap-2" role="group" aria-label="Employee status">
+          {[
+            ['active', 'Current Employees'],
+            ['past', 'Past Employees'],
+          ].map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => {
+                setEmployeeStatus(value);
+                setIsSearchActive(false);
+                setSearchResults([]);
+              }}
+              className={`px-4 py-2 rounded-lg ${employeeStatus === value ? 'bg-primary text-white' : 'bg-light-card dark:bg-dark-card text-light-text dark:text-dark-text'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         {isSearchActive ? (
           <div className="space-y-4">
             <button
@@ -198,7 +219,7 @@ const AdminManageEmployees = () => {
             </button>
 
             {searchResults.map(employee => (
-              <EmployeeCard key={employee._id} employee={employee} />
+              <EmployeeCard key={employee._id} employee={employee} past={employeeStatus === 'past'} />
             ))}
           </div>
         ) : loading ? (
@@ -209,7 +230,7 @@ const AdminManageEmployees = () => {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredEmployees.map(employee => (
-              <EmployeeCard key={employee._id} employee={employee} />
+              <EmployeeCard key={employee._id} employee={employee} past={employeeStatus === 'past'} />
             ))}
           </div>
         )}
@@ -227,7 +248,7 @@ const AdminManageEmployees = () => {
   );
 };
 
-const EmployeeCard = ({ employee }) => (
+const EmployeeCard = ({ employee, past }) => (
   <div className="group bg-light-card dark:bg-dark-card rounded-xl border border-light-border dark:border-dark-border hover:border-primary transition-all duration-300 overflow-hidden">
     <div className="p-6">
       <div className="flex items-center gap-4 mb-4">
@@ -239,6 +260,7 @@ const EmployeeCard = ({ employee }) => (
             {employee.name}
           </h3>
           <span className="text-sm text-primary-light">{employee.designation || 'N/A'}</span>
+          {past && <span className="block text-xs text-warning">Relieved {employee.relievedDate ? new Date(employee.relievedDate).toLocaleDateString() : ''}</span>}
         </div>
       </div>
 
@@ -273,7 +295,7 @@ const EmployeeCard = ({ employee }) => (
       </div>
 
       <Link
-        to={`/admin/dashboard/employees/${employee._id}`}
+        to={`/admin/dashboard/employees/${employee._id}${past ? '?past=1' : ''}`}
         className="mt-6 w-full px-4 py-2 bg-light-bg dark:bg-dark-bg hover:bg-light-bg/80 dark:hover:bg-dark-bg/80 rounded-lg flex items-center justify-center gap-2 transition-colors duration-200 group-hover:bg-primary group-hover:text-white text-light-text dark:text-dark-text"
       >
         <ExternalLink className="w-4 h-4 group-hover:text-white" />

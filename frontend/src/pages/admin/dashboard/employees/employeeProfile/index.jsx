@@ -14,6 +14,10 @@ const AdminEmployeeProfile = () => {
   const [employeeDetails, setEmployeeDetails] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteStep, setDeleteStep] = useState('choose');
+  const [reliefDate, setReliefDate] = useState('');
+  const [reliefReason, setReliefReason] = useState('');
+  const isPast = new URLSearchParams(window.location.search).get('past') === '1';
   const [confirmEmployeeId, setConfirmEmployeeId] = useState('');
   const [deleteLoading, setDeleteLoading] = useState(false);
 
@@ -22,7 +26,7 @@ const AdminEmployeeProfile = () => {
   const fetchEmployeeData = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${BASE_URL}/employee/find?id=${id}`, {
+      const response = await fetch(`${BASE_URL}/employee/find?id=${id}${isPast ? '&includePast=1' : ''}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
       if (!response.ok) throw new Error('Failed to fetch employee details.');
@@ -54,13 +58,36 @@ const AdminEmployeeProfile = () => {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
 
-      if (!response.ok) throw new Error('Failed to delete employee');
+      if (!response.ok) throw new Error((await response.json()).message || 'Failed to delete employee');
 
-      toast.success('Employee deleted successfully');
+      toast.success('Employee deletion started');
       setShowDeleteModal(false);
       setTimeout(() => navigate(-1), 1500);
     } catch (error) {
       toast.error(error.message || 'Failed to delete employee');
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  const handleRelieveEmployee = async () => {
+    if (!reliefDate) return toast.error('Select a relief date');
+    setDeleteLoading(true);
+    try {
+      const response = await fetch(`${BASE_URL}/employee/${id}/relieve`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ reliefDate, reason: reliefReason }),
+      });
+      if (!response.ok) throw new Error((await response.json()).message || 'Failed to relieve employee');
+      toast.success('Employee relieved');
+      setShowDeleteModal(false);
+      navigate('/admin/dashboard/employees');
+    } catch (error) {
+      toast.error(error.message);
     } finally {
       setDeleteLoading(false);
     }
@@ -115,6 +142,13 @@ const AdminEmployeeProfile = () => {
           </div>
         </div>
 
+        {isPast && employeeDetails && (
+          <div className="mb-6 p-4 rounded-lg bg-warning/10 border border-warning/30 text-light-text dark:text-dark-text">
+            Relieved on {employeeDetails.relievedDate ? new Date(employeeDetails.relievedDate).toLocaleDateString() : 'an unspecified date'}
+            {employeeDetails.reliefReason ? ` · Reason: ${employeeDetails.reliefReason}` : ''}
+          </div>
+        )}
+
         <div className="flex gap-2 mb-6 border-b border-light-border/50 dark:border-dark-border/50">
           <TabButton label="Information" tab="information" />
           <TabButton label="Leave Requests" tab="leaves" />
@@ -140,15 +174,29 @@ const AdminEmployeeProfile = () => {
               <div className="flex items-center gap-3 mb-4">
                 <AlertTriangle className="w-6 h-6 text-danger" />
                 <h3 className="text-xl font-bold text-light-text dark:text-dark-text">
-                  Delete Employee
+                  {deleteStep === 'choose' ? 'Manage Employee' : deleteStep === 'relieve' ? 'Relieve Employee' : 'Permanently Delete Employee'}
                 </h3>
               </div>
 
-              <div className="mb-6">
+              {deleteStep === 'choose' && <div className="mb-6 space-y-3">
+                <p className="text-light-text dark:text-dark-text">Choose how to remove this employee from active staff.</p>
+                {!isPast && <button className="w-full px-4 py-3 rounded-lg bg-primary text-white text-left" onClick={() => setDeleteStep('relieve')}>Relieve Employee — keep all records as a past employee</button>}
+                <button className="w-full px-4 py-3 rounded-lg bg-danger text-white text-left" onClick={() => setDeleteStep('permanent')}>Permanently Delete — remove the employee and related data</button>
+              </div>}
+              {deleteStep === 'relieve' && <div className="mb-6 space-y-4 text-light-text dark:text-dark-text">
+                <label className="block">Relief date
+                  <input type="date" required value={reliefDate} onChange={e => setReliefDate(e.target.value)} className="block w-full mt-1 p-3 rounded-lg bg-light-bg dark:bg-dark-bg border border-light-border dark:border-dark-border" />
+                </label>
+                <label className="block">Reason (optional)
+                  <textarea value={reliefReason} onChange={e => setReliefReason(e.target.value)} maxLength={2000} rows={3} className="block w-full mt-1 p-3 rounded-lg bg-light-bg dark:bg-dark-bg border border-light-border dark:border-dark-border" />
+                </label>
+              </div>}
+              {deleteStep === 'permanent' && <div className="mb-6">
                 <p className="text-light-text dark:text-dark-text mb-4">
                   This action <span className="font-bold text-danger">cannot be undone</span>. All
-                  employee data including attendance, leave, and personal information will be
-                  permanently deleted.
+                  employee data including attendance, breaks, daily reports, leave, holiday credits,
+                  salary, payroll, loans, assigned tasks, documents, and personal information will be
+                  removed in the background. The employee will disappear immediately.
                 </p>
                 <div className="bg-danger/30 border border-danger/50 rounded-lg p-3 mb-4">
                   <p className="dark:text-red-500 text-black text-sm">
@@ -166,20 +214,22 @@ const AdminEmployeeProfile = () => {
                   onChange={e => setConfirmEmployeeId(e.target.value)}
                   className="w-full p-3 rounded-lg bg-light-bg dark:bg-dark-bg border border-light-border dark:border-dark-border text-light-text dark:text-dark-text placeholder-light-text dark:placeholder-dark-text focus:outline-none focus:ring-2 focus:ring-danger focus:border-transparent"
                 />
-              </div>
+              </div>}
 
               <div className="flex justify-end gap-3">
                 <button
                   onClick={() => {
                     setShowDeleteModal(false);
                     setConfirmEmployeeId('');
+                    setDeleteStep('choose');
                   }}
                   className="px-4 py-2 rounded-lg bg-light-card dark:bg-dark-card hover:bg-light-card/80 dark:hover:bg-dark-card/80 transition-all duration-200 text-light-text dark:text-dark-text"
                   aria-label="Cancel deletion"
                 >
                   Cancel
                 </button>
-                <button
+                {deleteStep === 'relieve' && <button onClick={handleRelieveEmployee} disabled={!reliefDate || deleteLoading} className="px-4 py-2 rounded-lg bg-primary text-white disabled:opacity-50">Confirm Relief</button>}
+                {deleteStep === 'permanent' && <button
                   onClick={handleDeleteEmployee}
                   disabled={
                     confirmEmployeeId !== (employeeDetails?.employeeCode || '') || deleteLoading
@@ -193,7 +243,7 @@ const AdminEmployeeProfile = () => {
                 >
                   {deleteLoading && <Loader2 className="w-4 h-4 animate-spin text-white" />}
                   Delete Permanently
-                </button>
+                </button>}
               </div>
             </div>
           </div>

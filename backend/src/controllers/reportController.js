@@ -59,7 +59,9 @@ export const getAttendanceMaster = async (req, res) => {
     // Fetch attendance settings to apply them to status calculation
     const settings = await AdminAttendanceSettings.findOne().lean();
 
-    const employeeQuery = employeeId ? { _id: employeeId } : {};
+    const employeeQuery = employeeId
+      ? { _id: employeeId }
+      : { employmentStatus: { $nin: ['relieved', 'deleting'] } };
     const employees = await Employee.find(employeeQuery)
       .select('_id name employeeCode department designation joinedDate')
       .lean();

@@ -37,6 +37,9 @@ export const login = async (req, res) => {
 
     const user = employeeUser || adminUser;
     if (!user) return res.status(404).json({ message: 'User not found' });
+    if (employeeUser && ['relieved', 'deleting'].includes(employeeUser.employmentStatus)) {
+      return res.status(403).json({ message: 'Employee account is inactive' });
+    }
 
     // Validate password
     const validPassword = await bcrypt.compare(password, user.password);
@@ -74,6 +77,9 @@ export const refreshAccessToken = async (req, res) => {
 
     const user = (await Admin.findById(payload._id)) || (await Employee.findById(payload._id));
     if (!user) return res.status(404).json({ message: 'User not found' });
+    if (user.role === 'employee' && ['relieved', 'deleting'].includes(user.employmentStatus)) {
+      return res.status(403).json({ message: 'Employee account is inactive' });
+    }
 
     const { accessToken, refreshToken: newRefreshToken } = generateTokens(user);
 

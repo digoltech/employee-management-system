@@ -11,6 +11,7 @@ import hpp from 'hpp';
 import authRoute from './routes/authRoute.js';
 import attendanceRoute from './routes/attendanceRoute.js';
 import employeeRoute from './routes/employeeRoute.js';
+import { resumePendingEmployeeDeletions } from './controllers/employeeController.js';
 import attendanceSummaryRoute from './routes/attendanceSummaryRoute.js';
 import holidayRoute from './routes/holidayRoute.js';
 import adminRoute from './routes/adminRoute.js';
@@ -59,6 +60,7 @@ app.use(yearBoundaryGuard);
 // Connect to MongoDB and register the year-end expiry cron once the DB is up
 connectDB().then(() => {
   registerScheduledJobs();
+  resumePendingEmployeeDeletions().catch((error) => console.error('Could not resume employee deletions', error));
 });
 
 // Home Route
