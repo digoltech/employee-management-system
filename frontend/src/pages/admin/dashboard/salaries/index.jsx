@@ -16,9 +16,14 @@ import { toast, ToastContainer } from 'react-toastify';
 
 import Header from '../../../../components/pageHeader';
 import { useTheme } from '../../../../context/themeContext';
+import { buildPayrollRangeQuery, filterPayrollRecords, matchesEmployeeSelection } from '../salaryFilters';
 
 // String constants used across the file (avoid sonarjs/no-duplicate-string).
 const LEAVE_ENCASHMENT_LABEL = 'Leave Encashment';
+const getCurrentIstMonthYear = () => {
+  const now = new Date(Date.now() + 330 * 60 * 1000);
+  return { month: now.getUTCMonth() + 1, year: now.getUTCFullYear() };
+};
 
 const timeToMinutes = time => {
   if (!time) return '';
@@ -62,6 +67,7 @@ const AdminSalaryManagement = () => {
   const [employees, setEmployees] = useState([]);
   const [salaries, setSalaries] = useState([]);
   const [payrolls, setPayrolls] = useState([]);
+  const [rangePayrolls, setRangePayrolls] = useState([]);
   const [previewPayrolls, setPreviewPayrolls] = useState([]);
   const [loanAdvances, setLoanAdvances] = useState([]);
   const [extraAllowances, setExtraAllowances] = useState([]);
@@ -72,6 +78,8 @@ const AdminSalaryManagement = () => {
   const [loanFilterMonth, setLoanFilterMonth] = useState(new Date().getMonth() + 1);
   const [loanFilterYear, setLoanFilterYear] = useState(new Date().getFullYear());
   const [selectedEmployee, setSelectedEmployee] = useState(null);
+  const [pendingPayrollAction, setPendingPayrollAction] = useState(null);
+  const [isPayrollActionPending, setIsPayrollActionPending] = useState(false);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [isPanelMounted, setIsPanelMounted] = useState(false);
   const [isPanelVisible, setIsPanelVisible] = useState(false);
@@ -84,12 +92,20 @@ const AdminSalaryManagement = () => {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [year, setYear] = useState(new Date().getFullYear());
-  const [fromMonth, setFromMonth] = useState(new Date().getMonth() + 1);
-  const [fromYear, setFromYear] = useState(new Date().getFullYear());
-  const [toMonth, setToMonth] = useState(new Date().getMonth() + 1);
-  const [toYear, setToYear] = useState(new Date().getFullYear());
+  const [fromDate, setFromDate] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+  });
+  const [toDate, setToDate] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()).padStart(2, '0')}`;
+  });
+  const [appliedRange, setAppliedRange] = useState(null);
+  const [isRangeLoading, setIsRangeLoading] = useState(false);
   const [selectedExportEmployees, setSelectedExportEmployees] = useState([]);
   const [isEmployeeDropdownOpen, setIsEmployeeDropdownOpen] = useState(false);
+  const reportFromDate = appliedRange?.from || `${year}-${String(month).padStart(2, '0')}-01`;
+  const reportToDate = appliedRange?.to || `${year}-${String(month).padStart(2, '0')}-${String(new Date(year, month, 0).getDate()).padStart(2, '0')}`;
   const [currentPage, setCurrentPage] = useState(1);
   const [settingsPanel, setSettingsPanel] = useState(null);
   const [overtimeSettings, setOvertimeSettings] = useState({
@@ -153,6 +169,7 @@ const AdminSalaryManagement = () => {
     absent: 0,
   });
   const salaryTableScrollRef = useRef(null);
+  const employeeDropdownRef = useRef(null);
   const salaryScrollIntervalRef = useRef(null);
   const panelCloseTimeoutRef = useRef(null);
   const settingsPanelCloseTimeoutRef = useRef(null);
@@ -175,13 +192,15 @@ const AdminSalaryManagement = () => {
     []
   );
   const isSelectedMonthClosed = useMemo(() => {
-    const now = new Date();
-    const currentMonth = now.getMonth() + 1;
-    const currentYear = now.getFullYear();
+    const { month: currentMonth, year: currentYear } = getCurrentIstMonthYear();
 
     if (year < currentYear) return true;
     if (year > currentYear) return false;
     return month < currentMonth;
+  }, [month, year]);
+  const isSelectedMonthFuture = useMemo(() => {
+    const current = getCurrentIstMonthYear();
+    return year > current.year || (year === current.year && month > current.month);
   }, [month, year]);
   const selectedMonthLabel = useMemo(
     () => new Date(year, month - 1, 1).toLocaleString('default', { month: 'long' }),
@@ -332,6 +351,24 @@ const AdminSalaryManagement = () => {
     }
   };
 
+  const fetchRangePayrolls = async (range) => {
+    if (!range) return;
+    setIsRangeLoading(true);
+    try {
+      const query = new URLSearchParams(buildPayrollRangeQuery(range));
+      const response = await fetch(`${BASE_URL}/payroll?${query.toString()}`, {
+        headers: authHeaders,
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.message || 'Failed to fetch payroll range.');
+      setRangePayrolls(data.payrolls || []);
+    } catch (error) {
+      toast.error(error.message || 'Failed to fetch payroll range.');
+    } finally {
+      setIsRangeLoading(false);
+    }
+  };
+
   const fetchPayrollPreview = async () => {
     try {
       const query = new URLSearchParams({ month, year });
@@ -476,9 +513,34 @@ const AdminSalaryManagement = () => {
   };
 
   const handleSearch = () => {
-    setMonth(fromMonth);
-    setYear(fromYear);
+    if (!fromDate || !toDate || fromDate > toDate) {
+      toast.error('Select a valid From and To date range.');
+      return;
+    }
+    setRangePayrolls([]);
+    setAppliedRange({ from: fromDate, to: toDate });
+    setIsEmployeeDropdownOpen(false);
+    setCurrentPage(1);
   };
+
+  useEffect(() => {
+    if (appliedRange) fetchRangePayrolls(appliedRange);
+  }, [appliedRange]);
+
+  useEffect(() => {
+    if (!isEmployeeDropdownOpen) return undefined;
+    const closeDropdown = event => {
+      if (event.key === 'Escape' || (event.type === 'pointerdown' && !employeeDropdownRef.current?.contains(event.target))) {
+        setIsEmployeeDropdownOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', closeDropdown);
+    document.addEventListener('keydown', closeDropdown);
+    return () => {
+      document.removeEventListener('pointerdown', closeDropdown);
+      document.removeEventListener('keydown', closeDropdown);
+    };
+  }, [isEmployeeDropdownOpen]);
 
   useEffect(() => {
     let active = true;
@@ -1045,6 +1107,7 @@ const AdminSalaryManagement = () => {
   };
 
   const closePanel = () => {
+    setPendingPayrollAction(null);
     setIsPanelOpen(false);
     setIsPanelVisible(false);
     setIsPanelLoading(false);
@@ -1220,28 +1283,23 @@ const AdminSalaryManagement = () => {
     }
   };
 
+  const getPayrollsForExport = async () => {
+    if (appliedRange) return filteredRangePayrolls;
+    const query = new URLSearchParams({ month, year, all: 'true' });
+    const response = await fetch(`${BASE_URL}/payroll?${query.toString()}`, {
+      headers: authHeaders,
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(data?.message || 'Failed to fetch payrolls for export.');
+    const visibleEmployeeIds = new Set(filteredEmployees.map(employee => employee._id));
+    return (data.payrolls || []).filter(payroll =>
+      visibleEmployeeIds.has(payroll.employee?._id || payroll.employee)
+    );
+  };
+
   const exportPayrollCsv = async () => {
     try {
-      const queryParams = {
-        startMonth: fromMonth,
-        startYear: fromYear,
-        endMonth: toMonth,
-        endYear: toYear,
-        all: 'true',
-      };
-      if (selectedExportEmployees && selectedExportEmployees.length > 0) {
-        queryParams.employeeIds = selectedExportEmployees.join(',');
-      }
-      const query = new URLSearchParams(queryParams);
-      const response = await fetch(`${BASE_URL}/payroll?${query.toString()}`, {
-        headers: authHeaders,
-      });
-      const data = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(data?.message || 'Failed to fetch payrolls for export.');
-      }
-
-      const payrollsToExport = data.payrolls || [];
+      const payrollsToExport = await getPayrollsForExport();
       if (payrollsToExport.length === 0) {
         toast.info('No payroll records found for the selected period.');
         return;
@@ -1354,10 +1412,7 @@ const AdminSalaryManagement = () => {
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
 
-      const rangeLabel =
-        fromMonth === toMonth && fromYear === toYear
-          ? `${fromMonth}-${fromYear}`
-          : `${fromMonth}_${fromYear}_to_${toMonth}_${toYear}`;
+      const rangeLabel = `${reportFromDate}_to_${reportToDate}`;
 
       link.download = `payroll-report-${rangeLabel}.csv`;
       link.click();
@@ -1368,26 +1423,7 @@ const AdminSalaryManagement = () => {
 
   const exportPayrollPdf = async () => {
     try {
-      const queryParams = {
-        startMonth: fromMonth,
-        startYear: fromYear,
-        endMonth: toMonth,
-        endYear: toYear,
-        all: 'true',
-      };
-      if (selectedExportEmployees && selectedExportEmployees.length > 0) {
-        queryParams.employeeIds = selectedExportEmployees.join(',');
-      }
-      const query = new URLSearchParams(queryParams);
-      const response = await fetch(`${BASE_URL}/payroll?${query.toString()}`, {
-        headers: authHeaders,
-      });
-      const data = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(data?.message || 'Failed to fetch payrolls for export.');
-      }
-
-      const payrollsToExport = data.payrolls || [];
+      const payrollsToExport = await getPayrollsForExport();
       if (payrollsToExport.length === 0) {
         toast.info('No payroll records found for the selected period.');
         return;
@@ -1478,10 +1514,7 @@ const AdminSalaryManagement = () => {
         </tr>
       `;
 
-      const rangeLabel =
-        fromMonth === toMonth && fromYear === toYear
-          ? `${fromMonth}/${fromYear}`
-          : `${fromMonth}/${fromYear} to ${toMonth}/${toYear}`;
+      const rangeLabel = `${reportFromDate} to ${reportToDate}`;
 
       const html = `
         <html>
@@ -1544,9 +1577,6 @@ const AdminSalaryManagement = () => {
 
   const toRequestDate = (yearValue, monthValue, dayValue) =>
     `${formatDatePart(dayValue)}-${formatDatePart(monthValue)}-${yearValue}`;
-
-  const toInputDate = (yearValue, monthValue, dayValue) =>
-    `${yearValue}-${formatDatePart(monthValue)}-${formatDatePart(dayValue)}`;
 
   const rangeStart = useMemo(() => new Date(year, month - 1, 1), [year, month]);
   const rangeEnd = useMemo(() => new Date(year, month, 0), [year, month]);
@@ -1764,17 +1794,22 @@ const AdminSalaryManagement = () => {
     setLoanDetails({ employee, records, total, count: records.length });
   }, [settingsPanel, loanForm.employeeId, loanAdvances, month, year, employees]);
 
+  const getPayrollActionBody = () => ({
+    month,
+    year,
+    fullDays: Number(formState.fullDays || 0),
+    halfDays: Number(formState.halfDays || 0),
+    paidLeaves: Number(formState.paidLeaves || 0),
+    unpaidDays: Number(formState.unpaidDays || 0),
+    overtimeHours: Number(formState.overtimeHours || 0),
+    penalties: Number(formState.penalties || 0),
+    loanAmount: Number(formState.loanAmount || 0),
+    extraAmount: Number(formState.extraAmount ?? getExtraAmountForEmployee(selectedEmployee?._id) ?? 0),
+    netPay: formState.netPay === '' ? undefined : Number(formState.netPay || 0),
+  });
+
   const processPayroll = async () => {
     if (!selectedEmployee) return;
-    if (!isSelectedMonthClosed) {
-      toast.error(`Payroll can be processed only after ${selectedMonthLabel} ${year} ends.`);
-      return;
-    }
-    const selectedPayroll = selectedEmployee?.payroll || {};
-    const derivedPenalties = Number(formState.penalties || 0);
-    const derivedLoanAmount = Number(formState.loanAmount || 0);
-    const derivedOvertimeHours = Number(formState.overtimeHours || 0);
-    const derivedExtraAmount = getExtraAmountForEmployee(selectedEmployee._id);
     try {
       const response = await fetch(`${BASE_URL}/payroll/process/${selectedEmployee._id}`, {
         method: 'POST',
@@ -1783,18 +1818,9 @@ const AdminSalaryManagement = () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          month,
-          year,
-          fullDays: Number(formState.fullDays || 0),
-          halfDays: Number(formState.halfDays || 0),
-          paidLeaves: Number(formState.paidLeaves || 0),
-          unpaidDays: Number(formState.unpaidDays || 0),
-          overtimeHours: derivedOvertimeHours,
-          penalties: derivedPenalties,
-          loanAmount: derivedLoanAmount,
-          extraAmount: Number(formState.extraAmount ?? derivedExtraAmount ?? 0),
-          netPay: formState.netPay === '' ? undefined : Number(formState.netPay || 0),
+          ...getPayrollActionBody(),
           status: formState.status,
+          confirmEarlyProcessing: !isSelectedMonthClosed,
         }),
       });
       if (!response.ok) {
@@ -1809,60 +1835,61 @@ const AdminSalaryManagement = () => {
       });
       setSelectedEmployee(prev => (prev ? { ...prev, payroll: data.payroll } : prev));
       await fetchExtraAllowances();
+      if (appliedRange) await fetchRangePayrolls(appliedRange);
     } catch (error) {
       toast.error(error.message || 'Failed to process payroll.');
     }
   };
 
-  const generatePayslip = async (format = 'compact') => {
+  const generatePayslip = async (format = 'compact', print = false) => {
     const payrollId = selectedEmployee?.payroll?._id;
-    if (!payrollId) {
-      toast.error('Process payroll before generating payslip.');
-      return;
-    }
-
+    const payslipWindow = window.open('', '_blank');
     try {
-      const response = await fetch(`${BASE_URL}/payroll/payslip/${payrollId}?format=${format}`, {
-        headers: authHeaders,
-      });
-      if (!response.ok) throw new Error('Failed to generate payslip.');
+      const response = payrollId
+        ? await fetch(`${BASE_URL}/payroll/payslip/${payrollId}?format=${format}`, { headers: authHeaders })
+        : await fetch(`${BASE_URL}/payroll/payslip/preview/${selectedEmployee._id}`, {
+            method: 'POST',
+            headers: { ...authHeaders, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...getPayrollActionBody(), format, confirmPreview: true }),
+          });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.message || 'Failed to generate payslip.');
+      }
       const data = await response.json();
-      const payslipWindow = window.open('', '_blank');
       if (payslipWindow) {
         payslipWindow.document.open();
         payslipWindow.document.write(data.payslipHtml || '');
         payslipWindow.document.close();
+        if (print) setTimeout(() => { payslipWindow.focus(); payslipWindow.print(); }, 300);
       }
     } catch (error) {
+      payslipWindow?.close();
       toast.error(error.message || 'Failed to generate payslip.');
     }
   };
 
-  const downloadPayslipPdf = async () => {
-    const payrollId = selectedEmployee?.payroll?._id;
-    if (!payrollId) {
-      toast.error('Process payroll before downloading payslip.');
+  const requestPayrollAction = action => {
+    if (isSelectedMonthFuture || isPayrollActionPending) return;
+    if (action === 'process' && isPayrollPaidLocked) return;
+    if (!isSelectedMonthClosed || (action !== 'process' && !selectedEmployee?.payroll?._id)) {
+      setPendingPayrollAction(action);
       return;
     }
+    if (action === 'process') processPayroll();
+    else generatePayslip(action === 'full' ? 'full' : 'compact', action === 'print');
+  };
 
+  const confirmPayrollAction = async () => {
+    const action = pendingPayrollAction;
+    setPendingPayrollAction(null);
+    if (!action) return;
+    setIsPayrollActionPending(true);
     try {
-      const response = await fetch(`${BASE_URL}/payroll/payslip/${payrollId}`, {
-        headers: authHeaders,
-      });
-      if (!response.ok) throw new Error('Failed to generate payslip.');
-      const data = await response.json();
-      const payslipWindow = window.open('', '_blank');
-      if (payslipWindow) {
-        payslipWindow.document.open();
-        payslipWindow.document.write(data.payslipHtml || '');
-        payslipWindow.document.close();
-        setTimeout(() => {
-          payslipWindow.focus();
-          payslipWindow.print();
-        }, 300);
-      }
-    } catch (error) {
-      toast.error(error.message || 'Failed to generate payslip.');
+      if (action === 'process') await processPayroll();
+      else await generatePayslip(action === 'full' ? 'full' : 'compact', action === 'print');
+    } finally {
+      setIsPayrollActionPending(false);
     }
   };
 
@@ -1961,9 +1988,9 @@ const AdminSalaryManagement = () => {
   }, [employees]);
 
   const eligibleEmployees = employees.filter(isEmployeeEligibleForSelectedMonth);
-
   const filteredEmployees = eligibleEmployees
     .filter(employee => {
+      if (!matchesEmployeeSelection(employee._id, selectedExportEmployees)) return false;
       if (!normalizedQuery) return true;
       return (
         employee.name.toLowerCase().includes(normalizedQuery) ||
@@ -1987,14 +2014,23 @@ const AdminSalaryManagement = () => {
       return 0;
     });
 
+  const filteredRangePayrolls = filterPayrollRecords(rangePayrolls, employees, {
+    selectedEmployeeIds: selectedExportEmployees,
+    searchQuery,
+    department: departmentFilter,
+    status: statusFilter,
+  });
+
   const EMPLOYEES_PER_PAGE = 15;
-  const totalPages = Math.max(1, Math.ceil(filteredEmployees.length / EMPLOYEES_PER_PAGE));
+  const resultCount = appliedRange ? filteredRangePayrolls.length : filteredEmployees.length;
+  const totalPages = Math.max(1, Math.ceil(resultCount / EMPLOYEES_PER_PAGE));
   const startIndex = (currentPage - 1) * EMPLOYEES_PER_PAGE;
   const pagedEmployees = filteredEmployees.slice(startIndex, startIndex + EMPLOYEES_PER_PAGE);
+  const pagedRangePayrolls = filteredRangePayrolls.slice(startIndex, startIndex + EMPLOYEES_PER_PAGE);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, statusFilter, departmentFilter, sortOrder, month, year]);
+  }, [searchQuery, statusFilter, departmentFilter, sortOrder, month, year, selectedExportEmployees, appliedRange]);
 
   useEffect(() => {
     setCurrentPage(prev => Math.min(prev, totalPages));
@@ -2491,40 +2527,47 @@ const AdminSalaryManagement = () => {
         {/* 7. Action Buttons */}
         <div className="mt-8 flex flex-col gap-3">
           <button
-            onClick={processPayroll}
-            disabled={!isSelectedMonthClosed || isPayrollPaidLocked}
+            onClick={() => requestPayrollAction('process')}
+            disabled={isSelectedMonthFuture || isPayrollPaidLocked || isPayrollActionPending}
             className="w-full inline-flex items-center justify-center gap-2.5 px-4 py-3 rounded-lg bg-primary hover:bg-primary-hover text-white text-sm font-bold transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Calculator className="w-4 h-4" />
-            Process Payroll
+            {isSelectedMonthClosed ? 'Process Payroll' : 'Before Month End - Process Payroll'}
           </button>
           {isPayrollPaidLocked ? (
             <p className="text-xs text-center font-medium text-light-text/50 dark:text-dark-text/50">
               🔒 Payroll is locked for this month because the status is paid.
             </p>
           ) : null}
-          {!isSelectedMonthClosed ? (
+          {isSelectedMonthFuture ? (
             <p className="text-xs text-center font-medium text-light-text/50 dark:text-dark-text/50">
-              ⏳ Payroll unlocks after {selectedMonthLabel} {year} ends.
+              Payroll cannot be processed before {selectedMonthLabel} {year} starts.
+            </p>
+          ) : !isSelectedMonthClosed ? (
+            <p className="text-xs text-center font-medium text-light-text/50 dark:text-dark-text/50">
+              Early payroll uses the attendance and adjustments currently recorded. Review the amounts before confirming.
             </p>
           ) : null}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-1">
             <button
-              onClick={() => generatePayslip()}
+              onClick={() => requestPayrollAction('compact')}
+              disabled={isSelectedMonthFuture || isPayrollActionPending}
               className="inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-white dark:bg-dark-card border border-light-border dark:border-dark-border text-sm font-semibold hover:bg-light-bg/50 dark:hover:bg-dark-bg/50 transition-colors shadow-sm"
             >
               <FileSpreadsheet className="w-4 h-4" />
               Generate Payslip
             </button>
             <button
-              onClick={() => generatePayslip('full')}
+              onClick={() => requestPayrollAction('full')}
+              disabled={isSelectedMonthFuture || isPayrollActionPending}
               className="inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-white dark:bg-dark-card border border-light-border dark:border-dark-border text-sm font-semibold hover:bg-light-bg/50 dark:hover:bg-dark-bg/50 transition-colors shadow-sm"
             >
               <FileSpreadsheet className="w-4 h-4" />
               Generate Full Payslip
             </button>
             <button
-              onClick={downloadPayslipPdf}
+              onClick={() => requestPayrollAction('print')}
+              disabled={isSelectedMonthFuture || isPayrollActionPending}
               className="inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-white dark:bg-dark-card border border-light-border dark:border-dark-border text-sm font-semibold hover:bg-light-bg/50 dark:hover:bg-dark-bg/50 transition-colors shadow-sm"
             >
               <Download className="w-4 h-4" />
@@ -2572,14 +2615,8 @@ const AdminSalaryManagement = () => {
                 </label>
                 <input
                   type="date"
-                  value={toInputDate(fromYear, fromMonth, 1)}
-                  onChange={e => {
-                    const date = new Date(e.target.value);
-                    if (!Number.isNaN(date.getTime())) {
-                      setFromMonth(date.getMonth() + 1);
-                      setFromYear(date.getFullYear());
-                    }
-                  }}
+                  value={fromDate}
+                  onChange={e => setFromDate(e.target.value)}
                   className="px-4 py-2 rounded-lg border border-light-border dark:border-dark-border bg-white/90 dark:bg-dark-card"
                 />
               </div>
@@ -2589,24 +2626,20 @@ const AdminSalaryManagement = () => {
                 </label>
                 <input
                   type="date"
-                  value={toInputDate(toYear, toMonth, new Date(toYear, toMonth, 0).getDate())}
-                  onChange={e => {
-                    const date = new Date(e.target.value);
-                    if (!Number.isNaN(date.getTime())) {
-                      setToMonth(date.getMonth() + 1);
-                      setToYear(date.getFullYear());
-                    }
-                  }}
+                  value={toDate}
+                  onChange={e => setToDate(e.target.value)}
                   className="px-4 py-2 rounded-lg border border-light-border dark:border-dark-border bg-white/90 dark:bg-dark-card"
                 />
               </div>
-              <div className="flex flex-col relative">
+              <div className="flex flex-col relative" ref={employeeDropdownRef}>
                 <label className="text-xs uppercase tracking-[0.2em] text-light-text/60 dark:text-dark-text/60">
                   Employees
                 </label>
                 <button
                   type="button"
                   onClick={() => setIsEmployeeDropdownOpen(prev => !prev)}
+                  aria-expanded={isEmployeeDropdownOpen}
+                  aria-controls="salary-employee-filter-options"
                   className="px-4 py-2 rounded-lg border border-light-border dark:border-dark-border bg-white/90 dark:bg-dark-card flex items-center justify-between gap-2 min-w-[180px]"
                 >
                   <span className="text-sm">
@@ -2619,11 +2652,11 @@ const AdminSalaryManagement = () => {
                   />
                 </button>
                 {isEmployeeDropdownOpen && (
-                  <div className="absolute top-full left-0 mt-2 w-64 max-h-60 overflow-y-auto rounded-lg border border-light-border dark:border-dark-border bg-white dark:bg-dark-card shadow-lg z-50 p-2 space-y-1">
+                  <div id="salary-employee-filter-options" className="absolute top-full left-0 mt-2 w-64 max-h-60 overflow-y-auto rounded-lg border border-light-border dark:border-dark-border bg-white dark:bg-dark-card shadow-lg z-50 p-2 space-y-1">
                     <label className="flex items-center gap-2 px-2 py-1.5 hover:bg-light-bg/70 dark:hover:bg-dark-bg/70 rounded-md cursor-pointer text-sm">
                       <input
                         type="checkbox"
-                        checked={selectedExportEmployees.length === employees.length}
+                        checked={employees.length > 0 && selectedExportEmployees.length === employees.length}
                         onChange={e => {
                           if (e.target.checked) {
                             setSelectedExportEmployees(employees.map(emp => emp._id));
@@ -2668,6 +2701,19 @@ const AdminSalaryManagement = () => {
               >
                 Search
               </button>
+              {appliedRange && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAppliedRange(null);
+                    setRangePayrolls([]);
+                    setCurrentPage(1);
+                  }}
+                  className="self-end px-4 py-2 rounded-lg border border-light-border dark:border-dark-border"
+                >
+                  Clear Range
+                </button>
+              )}
             </div>
             <div className="flex flex-wrap gap-2">
               <button
@@ -2711,7 +2757,7 @@ const AdminSalaryManagement = () => {
                 value={month}
                 onChange={e => setMonth(Number(e.target.value))}
                 className="px-3 py-2 rounded-lg border border-light-border dark:border-dark-border bg-white/90 dark:bg-dark-card"
-                aria-label="Select month"
+                aria-label="Select processing month"
               >
                 {Array.from({ length: 12 }, (_, index) => (
                   <option key={index + 1} value={index + 1}>
@@ -2723,7 +2769,7 @@ const AdminSalaryManagement = () => {
                 value={year}
                 onChange={e => setYear(Number(e.target.value))}
                 className="px-3 py-2 rounded-lg border border-light-border dark:border-dark-border bg-white/90 dark:bg-dark-card"
-                aria-label="Select year"
+                aria-label="Select processing year"
               >
                 {Array.from({ length: 6 }, (_, index) => new Date().getFullYear() - index).map(
                   value => (
@@ -2778,16 +2824,89 @@ const AdminSalaryManagement = () => {
           </div>
         </div>
 
+        {appliedRange && (
+          <div className="mb-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm">
+            Showing processed payroll for months overlapping {appliedRange.from} to {appliedRange.to}.
+            The month and year selectors above are for processing an individual payroll month.
+          </div>
+        )}
+
         <div className="relative group/table">
           <div
             ref={salaryTableScrollRef}
             className="overflow-x-auto rounded-xl border border-light-border dark:border-dark-border bg-light-card dark:bg-dark-card"
           >
             <table className="admin-sticky-columns min-w-full text-sm">
+              {appliedRange ? (
+                <>
+                  <thead className="bg-light-bg/70 dark:bg-dark-bg/70 text-xs uppercase tracking-wide text-light-text/60 dark:text-dark-text/60">
+                    <tr>
+                      <th className="px-4 py-3 text-left font-semibold">Month</th>
+                      <th className="px-4 py-3 text-left font-semibold">Employee</th>
+                      <th className="px-4 py-3 text-left font-semibold">Department</th>
+                      <th className="px-4 py-3 text-left font-semibold">Full Days</th>
+                      <th className="px-4 py-3 text-left font-semibold">Half Days</th>
+                      <th className="px-4 py-3 text-left font-semibold">Paid Leaves</th>
+                      <th className="px-4 py-3 text-left font-semibold">Unpaid Days</th>
+                      <th className="px-4 py-3 text-left font-semibold">Worked Pay</th>
+                      <th className="px-4 py-3 text-left font-semibold">Additions</th>
+                      <th className="px-4 py-3 text-left font-semibold">Deductions</th>
+                      <th className="px-4 py-3 text-left font-semibold">Net Pay</th>
+                      <th className="px-4 py-3 text-left font-semibold">Status</th>
+                      <th className="px-4 py-3 text-left font-semibold">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pagedRangePayrolls.map(payroll => {
+                      const employee = typeof payroll.employee === 'object' && payroll.employee
+                        ? payroll.employee
+                        : employees.find(item => item._id === payroll.employee) || {};
+                      const employeeId = employee?._id || employee;
+                      const workedPay = Number(payroll.dailyWage || 0) *
+                        (Number(payroll.fullDays || 0) + Number(payroll.halfDays || 0) * 0.5);
+                      const additions = Number(payroll.paidLeaves || 0) * Number(payroll.dailyWage || 0) +
+                        Number(payroll.overtimeAmount || 0) + Number(payroll.extraAmount || 0) +
+                        Number(payroll.leaveEncashmentAmount || 0);
+                      const deductions = Number(payroll.penalties || 0) + Number(payroll.loanAmount || 0) +
+                        Number(payroll.professionalTax || 0);
+                      return (
+                        <tr key={payroll._id} className="border-t border-light-border/70 dark:border-dark-border/70 hover:bg-light-bg/40 dark:hover:bg-dark-bg/40">
+                          <td className="px-4 py-3 whitespace-nowrap">{payroll.month}/{payroll.year}</td>
+                          <td className="px-4 py-3 min-w-[220px]">
+                            <button type="button" onClick={() => navigate(`/admin/dashboard/employees/${employeeId}`)} className="text-left">
+                              <span className="block font-semibold hover:text-primary">{employee.name}</span>
+                              <span className="block text-xs text-light-text/60 dark:text-dark-text/60">{employee.employeeCode || 'N/A'} · {employee.email}</span>
+                            </button>
+                          </td>
+                          <td className="px-4 py-3">{employee.department || 'N/A'}</td>
+                          <td className="px-4 py-3">{payroll.fullDays || 0}</td>
+                          <td className="px-4 py-3">{payroll.halfDays || 0}</td>
+                          <td className="px-4 py-3">{payroll.paidLeaves || 0}</td>
+                          <td className="px-4 py-3">{payroll.unpaidDays || 0}</td>
+                          <td className="px-4 py-3">₹{workedPay.toFixed(2)}</td>
+                          <td className="px-4 py-3">₹{additions.toFixed(2)}</td>
+                          <td className="px-4 py-3">₹{deductions.toFixed(2)}</td>
+                          <td className="px-4 py-3 font-semibold">₹{Number(payroll.totalSalary || 0).toFixed(2)}</td>
+                          <td className="px-4 py-3 capitalize">{payroll.status || 'unpaid'}</td>
+                          <td className="px-4 py-3">
+                            <button type="button" onClick={() => {
+                              setMonth(Number(payroll.month));
+                              setYear(Number(payroll.year));
+                              setAppliedRange(null);
+                            }} className="px-3 py-2 text-xs rounded-lg border border-light-border dark:border-dark-border">
+                              Open Month
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </>
+              ) : (
+                <>
               <thead className="bg-light-bg/70 dark:bg-dark-bg/70 text-xs uppercase tracking-wide text-light-text/60 dark:text-dark-text/60">
                 <tr>
-                  <th className="px-4 py-3 text-left font-semibold">Emp ID</th>
-                  <th className="px-4 py-3 text-left font-semibold">Name</th>
+                  <th className="px-4 py-3 text-left font-semibold">Employee</th>
                   <th className="px-4 py-3 text-left font-semibold">Department</th>
                   <th className="px-4 py-3 text-left font-semibold">Designation</th>
                   <th className="px-4 py-3 text-left font-semibold">Full Day</th>
@@ -2875,20 +2994,14 @@ const AdminSalaryManagement = () => {
                       className="border-t border-light-border/70 dark:border-dark-border/70 hover:bg-light-bg/40 dark:hover:bg-dark-bg/40"
                     >
                       <td
-                        className="px-4 py-3 text-light-text/70 dark:text-dark-text/70 cursor-pointer hover:text-primary hover:underline transition-colors"
-                        onClick={() => navigate(`/admin/dashboard/employees/${employee._id}`)}
-                      >
-                        {employee.employeeCode || 'N/A'}
-                      </td>
-                      <td
-                        className="px-4 py-3 cursor-pointer group"
+                        className="px-4 py-3 cursor-pointer group min-w-[220px]"
                         onClick={() => navigate(`/admin/dashboard/employees/${employee._id}`)}
                       >
                         <div className="font-medium text-light-text dark:text-dark-text group-hover:text-primary group-hover:underline transition-colors">
                           {employee.name}
                         </div>
                         <div className="text-xs text-light-text/60 dark:text-dark-text/60">
-                          {employee.email}
+                          {employee.employeeCode || 'N/A'} · {employee.email}
                         </div>
                       </td>
                       <td className="px-4 py-3 text-light-text/70 dark:text-dark-text/70">
@@ -3018,6 +3131,8 @@ const AdminSalaryManagement = () => {
                   );
                 })}
               </tbody>
+                </>
+              )}
             </table>
           </div>
           <div
@@ -3036,11 +3151,11 @@ const AdminSalaryManagement = () => {
 
         <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between text-sm text-light-text/70 dark:text-dark-text/70">
           <div>
-            {filteredEmployees.length > 0
+            {isRangeLoading ? 'Loading payroll range...' : resultCount > 0
               ? `Showing ${startIndex + 1}-${Math.min(
                   startIndex + EMPLOYEES_PER_PAGE,
-                  filteredEmployees.length
-                )} of ${filteredEmployees.length}`
+                  resultCount
+                )} of ${resultCount}`
               : 'Showing 0 results'}
           </div>
           <div className="flex items-center gap-2">
@@ -3079,6 +3194,42 @@ const AdminSalaryManagement = () => {
             role="presentation"
           >
             {renderPanelContent(true)}
+          </div>
+        </div>
+      )}
+
+      {pendingPayrollAction && selectedEmployee && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4" role="presentation" onClick={() => setPendingPayrollAction(null)}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="early-payroll-confirmation-title"
+            className="w-full max-w-md rounded-2xl border border-light-border dark:border-dark-border bg-light-card dark:bg-dark-card p-6 shadow-2xl"
+            onClick={event => event.stopPropagation()}
+          >
+            <h2 id="early-payroll-confirmation-title" className="text-lg font-bold">
+              {pendingPayrollAction === 'process'
+                ? 'Process payroll before month end?'
+                : selectedEmployee.payroll?._id
+                  ? 'Generate payslip before month end?'
+                  : 'Generate payslip before processing?'}
+            </h2>
+            <p className="mt-3 text-sm text-light-text/70 dark:text-dark-text/70">
+              {selectedEmployee.name} · {selectedMonthLabel} {year}
+            </p>
+            <p className="mt-3 text-sm text-light-text/70 dark:text-dark-text/70">
+              {pendingPayrollAction === 'process'
+                ? 'This saves payroll using attendance, leave, and adjustments recorded so far. Remaining working days may appear as unpaid. If the status is Paid, it will be locked and the payslip may be emailed. Review the salary before continuing.'
+                : selectedEmployee.payroll?._id
+                  ? 'This month has not ended. The saved payslip may change if payroll is updated later. Continue to generate it?'
+                  : 'Payroll has not been processed. This creates a draft preview using the current salary details without saving payroll or marking it paid.'}
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button type="button" onClick={() => setPendingPayrollAction(null)} className="rounded-lg border border-light-border dark:border-dark-border px-4 py-2 text-sm">Cancel</button>
+              <button type="button" onClick={confirmPayrollAction} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white">
+                {pendingPayrollAction === 'process' ? 'Confirm Processing' : selectedEmployee.payroll?._id ? 'Generate Payslip' : 'Generate Preview'}
+              </button>
+            </div>
           </div>
         </div>
       )}

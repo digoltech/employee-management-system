@@ -105,3 +105,32 @@ test('full payslip shows saved attendance and reconciles to saved net salary', (
   assert.match(html, /Net Salary<\/td><td class="total">5756\.54/);
   assert.doesNotMatch(html, /Extra Allowances<\/td>|9999\.00/);
 });
+
+test('unprocessed payslip is clearly marked as a draft preview', () => {
+  const html = generatePayslipHtml({
+    salary: {
+      employeeName: 'Example',
+      salaryMonth: 10,
+      salaryYear: 2026,
+      totalSalary: 500,
+      payrollBreakdown: {
+        workedDaysPay: 500,
+        paidLeavePay: 0,
+        overtimePay: 0,
+        extraPay: 0,
+        leaveEncashmentPay: 0,
+        penalties: 0,
+        loanAmount: 0,
+        professionalTax: 0,
+        netPayAdjustment: 0,
+      },
+    },
+    employee: { name: 'Example', email: 'example@test.com', employeeCode: 'E1' },
+    settings: getDefaultPayslipSettings(),
+    template: { accentStyle: 'classic' },
+    isPreview: true,
+  });
+
+  assert.match(html, /DRAFT PREVIEW — Payroll has not been processed/);
+  assert.match(html, /Net Salary<\/td><td class="total">500\.00/);
+});

@@ -46,7 +46,7 @@ const templateClassMap = {
   executive: 'background: #111827; color: #fff;',
 };
 
-export const generatePayslipHtml = ({ salary, employee, settings, template, payroll, format = 'compact' }) => {
+export const generatePayslipHtml = ({ salary, employee, settings, template, payroll, format = 'compact', isPreview = false }) => {
   const isFull = format === 'full' && payroll;
   const dailyWage = Number(payroll?.dailyWage || 0);
   const fullDays = Number(payroll?.fullDays || 0);
@@ -183,6 +183,7 @@ export const generatePayslipHtml = ({ salary, employee, settings, template, payr
       <div style="font-size: 13px; margin-top: 8px;">${isFull ? 'Full Payslip' : 'Payslip'} for ${monthName} ${salary.salaryYear}</div>
     </div>
     <div class="body">
+      ${isPreview ? '<div style="padding:12px; margin-bottom:18px; border:1px solid #f59e0b; background:#fffbeb; color:#92400e; font-weight:700;">DRAFT PREVIEW — Payroll has not been processed. Review amounts before payment.</div>' : ''}
       <div class="grid">
         <div><div class="label">Employee Name</div><div class="value">${employee.name}</div></div>
         <div><div class="label">Employee Email</div><div class="value">${employee.email}</div></div>

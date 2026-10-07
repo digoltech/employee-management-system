@@ -8,6 +8,7 @@ import {
   getPayrolls,
   getPayrollByEmployee,
   getPayrollPayslipHtml,
+  previewPayrollPayslipHtml,
   getPayrollHistory,
 } from '../controllers/payrollController.js';
 
@@ -30,6 +31,7 @@ router.get('/employee/:employeeId', verifyToken, getPayrollByEmployee);
 
 // Get payroll payslip HTML
 router.get('/payslip/:payrollId', verifyToken, checkRole(['admin']), getPayrollPayslipHtml);
+router.post('/payslip/preview/:employeeId', verifyToken, checkRole(['admin']), previewPayrollPayslipHtml);
 
 // Get payroll history
 router.get('/history', verifyToken, checkRole(['admin']), getPayrollHistory);

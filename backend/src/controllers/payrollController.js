@@ -71,6 +71,7 @@ const isPayrollMonthClosed = (month, year) => {
   const now = new Date();
   return now > end;
 };
+const hasPayrollMonthStarted = (month, year) => new Date() >= getIstMonthRange(month, year).start;
 
 const resolveAttendanceStatus = (record, settings) => {
   if (!record) return 'absent';
@@ -104,7 +105,7 @@ const toDateKey = (date) => getIstDayKey(date);
 
 const toMonthIndex = (year, month) => year * 12 + (month - 1);
 
-const getLoanAdvanceDeduction = async (employeeId, month, year) => {
+const getLoanAdvanceDeduction = async (employeeId, month, year, persistChanges = false) => {
   const records = await LoanAdvance.find({ employee: employeeId, status: 'active' }).lean();
   const targetIndex = toMonthIndex(year, month);
   const completedIds = [];
@@ -164,7 +165,7 @@ const getLoanAdvanceDeduction = async (employeeId, month, year) => {
     return sum;
   }, 0);
 
-  if (completedIds.length) {
+  if (persistChanges && completedIds.length) {
     await LoanAdvance.updateMany(
       { _id: { $in: completedIds }, status: 'active' },
       { $set: { status: 'completed' } }
@@ -481,7 +482,12 @@ const computePayroll = async ({
   processedBy,
   persistSundayCompensation = false,
 }) => {
-  const autoLoanAmount = await getLoanAdvanceDeduction(employee._id, month, year);
+  const autoLoanAmount = await getLoanAdvanceDeduction(
+    employee._id,
+    month,
+    year,
+    persistSundayCompensation
+  );
   const hasManualLoanAmount = loanAmount !== undefined && loanAmount !== null;
   const totalLoanAmount = hasManualLoanAmount
     ? Number(loanAmount || 0)
@@ -597,7 +603,7 @@ const computePayroll = async ({
     });
   }
 
-  if (leaveEncashmentEntries.length) {
+  if (persistSundayCompensation && leaveEncashmentEntries.length) {
     await syncLeaveEncashmentExtras({
       employeeId: employee._id,
       month,
@@ -1100,9 +1106,13 @@ export const processPayrollForEmployee = async (req, res) => {
       return res.status(400).json({ message: 'Month and year are required' });
     }
 
-    if (!isPayrollMonthClosed(month, year)) {
+    if (!hasPayrollMonthStarted(month, year)) {
+      return res.status(400).json({ message: 'Payroll cannot be processed before the selected month starts' });
+    }
+
+    if (!isPayrollMonthClosed(month, year) && req.body.confirmEarlyProcessing !== true) {
       return res.status(400).json({
-        message: 'Payroll can only be processed after the selected month has ended',
+        message: 'Confirm early payroll processing for the selected month',
       });
     }
 
@@ -1449,5 +1459,76 @@ export const getPayrollPayslipHtml = async (req, res) => {
     return res.status(200).json({ message: 'Payslip generated successfully', payslipHtml });
   } catch (error) {
     return res.status(500).json({ message: 'Error generating payslip', error: error.message });
+  }
+};
+
+export const previewPayrollPayslipHtml = async (req, res) => {
+  try {
+    const { employeeId } = req.params;
+    const month = Number(req.body.month);
+    const year = Number(req.body.year);
+    if (!mongoose.Types.ObjectId.isValid(employeeId) || !Number.isInteger(month) || month < 1 || month > 12 || !Number.isInteger(year)) {
+      return res.status(400).json({ message: 'Valid employee, month, and year are required' });
+    }
+    if (!hasPayrollMonthStarted(month, year)) {
+      return res.status(400).json({ message: 'Payslip cannot be previewed before the selected month starts' });
+    }
+    if (req.body.confirmPreview !== true) {
+      return res.status(400).json({ message: 'Confirm unprocessed payslip preview' });
+    }
+
+    const employee = await Employee.findById(employeeId);
+    if (!employee) return res.status(404).json({ message: 'Employee not found' });
+    const existingPayroll = await Payroll.findOne({ employee: employeeId, month, year });
+    if (existingPayroll) {
+      return res.status(409).json({ message: 'Payroll has already been processed; use its saved payslip' });
+    }
+
+    const payrollValues = await computePayroll({
+      employee,
+      month,
+      year,
+      fullDays: req.body.fullDays,
+      halfDays: req.body.halfDays,
+      paidLeaves: req.body.paidLeaves,
+      unpaidDays: req.body.unpaidDays,
+      overtimeHours: req.body.overtimeHours,
+      penalties: req.body.penalties,
+      loanAmount: req.body.loanAmount,
+      extraAmount: req.body.extraAmount,
+      netPay: req.body.netPay,
+      payrollSettings: await resolvePayrollSettings(),
+    });
+    const settings = await resolvePayslipSettings();
+    const amounts = calculatePayrollAmounts(payrollValues);
+    const salary = {
+      employeeName: employee.name,
+      salaryMonth: month,
+      salaryYear: year,
+      totalSalary: payrollValues.totalSalary,
+      payrollBreakdown: {
+        workedDaysPay: amounts.workedDaysPay,
+        paidLeavePay: amounts.paidLeavePay,
+        overtimePay: payrollValues.overtimeAmount,
+        extraPay: payrollValues.extraAmount,
+        leaveEncashmentPay: payrollValues.leaveEncashmentAmount,
+        penalties: payrollValues.penalties,
+        loanAmount: payrollValues.loanAmount,
+        professionalTax: payrollValues.professionalTax,
+        netPayAdjustment: payrollValues.totalSalary - amounts.netPay,
+      },
+    };
+    const payslipHtml = generatePayslipHtml({
+      salary,
+      employee,
+      settings,
+      template: pickTemplate(settings),
+      payroll: { ...payrollValues, month, year, status: 'unpaid' },
+      format: req.body.format === 'full' ? 'full' : 'compact',
+      isPreview: true,
+    });
+    return res.status(200).json({ message: 'Payslip preview generated', payslipHtml });
+  } catch (error) {
+    return res.status(500).json({ message: 'Error generating payslip preview', error: error.message });
   }
 };
