@@ -14,6 +14,7 @@ import ExtraAllowance from '../models/extraAllowanceSchema.js';
 import LateCheckIn from '../models/lateCheckInSchema.js';
 import sendEmail from '../services/sendEmail.js';
 import { generatePayslipHtml, getDefaultPayslipSettings } from '../utils/payslipUtils.js';
+import { calculatePayrollAmounts } from '../utils/payrollCalculation.js';
 import {
   getIstDayKey,
   getIstDayOfWeek,
@@ -24,7 +25,7 @@ import {
 } from '../utils/timezoneUtils.js';
 import { getPayrollLeaveDaysForRange, getTemplateBalance } from '../utils/leaveTemplateUtils.js';
 import { getEmployeeHolidayDateSet } from '../services/holidayPayrollService.js';
-import { calculateWorkingMinutes } from '../utils/attendanceTimeUtils.js';
+import { calculateWorkingMinutes, getWorkedDayStatus } from '../utils/attendanceTimeUtils.js';
 
 const HOURS_PER_DAY = 8;
 
@@ -81,11 +82,8 @@ const resolveAttendanceStatus = (record, settings) => {
 
   const workingMinutes = Number(record.totalWorkingTime || 0);
   const minAbsentHours = Number(settings?.minAbsentHours || 180);
-  const fullDayHours = Number(settings?.fullDayHours || 470);
 
-  if (workingMinutes < minAbsentHours) return 'absent';
-  if (workingMinutes < fullDayHours) return 'half-day';
-  return 'full-day';
+  return getWorkedDayStatus(workingMinutes, minAbsentHours);
 };
 
 const countWorkingDays = (month, year) => {
@@ -447,7 +445,7 @@ export const syncSundayCompensationForAttendanceChange = async ({
     .sort({ createdAt: -1 })
     .lean();
 
-  const baseSalary = Number(salaryRecord?.baseSalary || 0);
+  const baseSalary = Number(salaryRecord?.contractBaseSalary ?? salaryRecord?.baseSalary ?? 0);
   const dailyWage = workingDays ? baseSalary / workingDays : 0;
 
   const sundayCompensationEntries = buildSundayCompensationEntries({
@@ -527,7 +525,7 @@ const computePayroll = async ({
     .sort({ createdAt: -1 })
     .lean();
 
-  const baseSalary = Number(salaryRecord?.baseSalary || 0);
+  const baseSalary = Number(salaryRecord?.contractBaseSalary ?? salaryRecord?.baseSalary ?? 0);
   const dailyWage = workingDays ? baseSalary / workingDays : 0;
   const resolvedPenalties =
     penalties !== undefined && penalties !== null
@@ -725,22 +723,25 @@ const computePayroll = async ({
   const halfDayDeduction = resolvedHalfDays * dailyWage * 0.5;
   const professionalTax = baseSalary > 12000 ? 200 : 0;
   const defaultExtra = Number(payrollSettings?.extras?.defaultExtra || 0);
-  const normalizedExtraAmount =
-    extraAmount !== undefined && extraAmount !== null ? Number(extraAmount || 0) : defaultExtra;
-  const totalExtraAmount = normalizedExtraAmount + Number(autoExtraAmount || 0);
+  // An explicit amount replaces the automatic allowance, including when it is zero.
+  const totalExtraAmount =
+    extraAmount !== undefined && extraAmount !== null
+      ? Number(extraAmount || 0)
+      : defaultExtra + Number(autoExtraAmount || 0);
   const leaveEncashmentAmount = Number(leaveEncashmentTotal || 0);
 
-  const totalSalary =
-    resolvedFullDays * dailyWage +
-    resolvedHalfDays * dailyWage * 0.5 +
-    resolvedPaidLeaves * dailyWage +
-    overtimeAmount +
-    totalExtraAmount -
-    resolvedPenalties -
-    totalLoanAmount +
-    leaveEncashmentAmount -
-    professionalTax -
-    (unpaidDays === undefined ? 0 : resolvedUnpaidDays * dailyWage);
+  const { netPay: totalSalary } = calculatePayrollAmounts({
+    fullDays: resolvedFullDays,
+    halfDays: resolvedHalfDays,
+    paidLeaves: resolvedPaidLeaves,
+    dailyWage,
+    overtimeAmount,
+    extraAmount: totalExtraAmount,
+    leaveEncashmentAmount,
+    penalties: resolvedPenalties,
+    loanAmount: totalLoanAmount,
+    professionalTax,
+  });
   const resolvedTotalSalary = netPay === undefined ? totalSalary : Number(netPay || 0);
 
   const holidayBreakdown = {
@@ -805,7 +806,7 @@ const upsertPayroll = async ({
   overtimeHours,
   penalties,
   loanAmount,
-  extraAmount = 0,
+  extraAmount,
   netPay,
   status = 'unpaid',
   processedBy,
@@ -829,16 +830,16 @@ const upsertPayroll = async ({
     persistSundayCompensation: true,
   });
 
-  const salaryDeductions =
-    Number(payrollValues.penalties || 0) +
-    Number(payrollValues.loanAmount || 0) +
-    payrollValues.unpaidDays * payrollValues.dailyWage +
-    payrollValues.halfDayDeduction +
-    payrollValues.professionalTax;
+  const {
+    workedDaysPay: earnedBaseSalary,
+    paidLeavePay,
+    deductions: salaryDeductions,
+  } = calculatePayrollAmounts(payrollValues);
   const salaryBonuses =
     Number(payrollValues.extraAmount || 0) +
     Number(payrollValues.leaveEncashmentAmount || 0) +
-    payrollValues.overtimeAmount;
+    payrollValues.overtimeAmount +
+    paidLeavePay;
 
   const settings = await resolvePayslipSettings();
   const template = pickTemplate(settings);
@@ -854,7 +855,8 @@ const upsertPayroll = async ({
       employee: employee._id,
       employeeName: employee.name,
       employeeEmail: employee.email,
-      baseSalary: payrollValues.baseSalary,
+      baseSalary: earnedBaseSalary,
+      contractBaseSalary: payrollValues.baseSalary,
       bonuses: salaryBonuses,
       deductions: salaryDeductions,
       totalSalary: payrollValues.totalSalary,
@@ -876,7 +878,8 @@ const upsertPayroll = async ({
       },
     });
   } else {
-    salary.baseSalary = payrollValues.baseSalary;
+    salary.baseSalary = earnedBaseSalary;
+    salary.contractBaseSalary = payrollValues.baseSalary;
     salary.bonuses = salaryBonuses;
     salary.deductions = salaryDeductions;
     salary.totalSalary = payrollValues.totalSalary;
@@ -894,6 +897,19 @@ const upsertPayroll = async ({
       footerNote: settings.footerNote,
     };
   }
+
+  salary.payrollBreakdown = {
+    workedDaysPay: earnedBaseSalary,
+    paidLeavePay,
+    overtimePay: payrollValues.overtimeAmount,
+    extraPay: payrollValues.extraAmount,
+    leaveEncashmentPay: payrollValues.leaveEncashmentAmount,
+    penalties: payrollValues.penalties,
+    loanAmount: payrollValues.loanAmount,
+    professionalTax: payrollValues.professionalTax,
+    netPayAdjustment:
+      payrollValues.totalSalary - (earnedBaseSalary + salaryBonuses - salaryDeductions),
+  };
 
   await salary.save();
 
@@ -1426,6 +1442,8 @@ export const getPayrollPayslipHtml = async (req, res) => {
       employee,
       settings: mergePayslipSettings(salary.payslipSnapshot, settings),
       template,
+      payroll,
+      format: req.query.format === 'full' ? 'full' : 'compact',
     });
 
     return res.status(200).json({ message: 'Payslip generated successfully', payslipHtml });

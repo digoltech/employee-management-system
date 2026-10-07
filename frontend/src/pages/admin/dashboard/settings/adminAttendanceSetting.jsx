@@ -164,10 +164,10 @@ const AdminAttendanceSettings = () => {
     },
     {
       name: 'totalWorkingHours',
-      title: 'Full Day Working Hours',
-      description: 'Total hours required to be counted as a complete workday',
+      title: 'Scheduled Working Hours',
+      description: 'Scheduled shift length used for overtime. Full day attendance starts at 7.5 worked hours (450 minutes).',
       icon: <Calendar className="w-5 h-5 text-success" />,
-      help: 'This defines how many hours an employee must work to be credited with a full day of work.',
+      help: 'This sets the scheduled shift length for overtime. Full day attendance is credited after 450 worked minutes.',
       placeholder: 'Enter hours (e.g. 8)',
       unit: 'hours',
       color: 'success',
@@ -283,7 +283,7 @@ const AdminAttendanceSettings = () => {
                             <span className="font-medium text-light-text dark:text-dark-text">
                               Present:
                             </span>{' '}
-                            Works ≥ {settings.totalWorkingHours} hrs, checks in before{' '}
+                            Works ≥ 7.5 hrs, checks in before{' '}
                             {settings.lateByMinutes} mins
                           </p>
                         </div>
@@ -293,7 +293,7 @@ const AdminAttendanceSettings = () => {
                             <span className="font-medium text-light-text dark:text-dark-text">
                               Late:
                             </span>{' '}
-                            Works ≥ {settings.totalWorkingHours} hrs, checks in after{' '}
+                            Works ≥ 7.5 hrs, checks in after{' '}
                             {settings.lateByMinutes} mins (≤ {settings.maxLateCheckIns} times/month)
                           </p>
                         </div>
@@ -303,7 +303,7 @@ const AdminAttendanceSettings = () => {
                             <span className="font-medium text-light-text dark:text-dark-text">
                               Half Day:
                             </span>{' '}
-                            Works between {settings.halfDayHours} and {settings.totalWorkingHours}{' '}
+                            Works between {settings.halfDayHours} and 7.5{' '}
                             hrs or exceeds {settings.maxLateCheckIns} late check-ins
                           </p>
                         </div>
@@ -409,7 +409,7 @@ const AdminAttendanceSettings = () => {
                     </h4>
                     <div className="space-y-2 text-sm text-light-text dark:text-dark-text">
                       <p>• Check-in: Before {settings.lateByMinutes || '_'} mins</p>
-                      <p>• Hours: ≥ {settings.totalWorkingHours || '_'} hrs</p>
+                      <p>• Hours: ≥ 7.5 hrs (450 minutes)</p>
                       <ArrowRight className="w-4 h-4 text-light-text dark:text-dark-text opacity-50 my-1" />
                       <p className="font-medium text-light-text dark:text-dark-text">
                         Result: Full day attendance
@@ -423,7 +423,7 @@ const AdminAttendanceSettings = () => {
                     </h4>
                     <div className="space-y-2 text-sm text-light-text dark:text-dark-text">
                       <p>• Check-in: After {settings.lateByMinutes || '_'} mins</p>
-                      <p>• Hours: ≥ {settings.totalWorkingHours || '_'} hrs</p>
+                      <p>• Hours: ≥ 7.5 hrs (450 minutes)</p>
                       <p>• Late Check-ins: ≤ {settings.maxLateCheckIns || '_'} times</p>
                       <ArrowRight className="w-4 h-4 text-light-text dark:text-dark-text opacity-50 my-1" />
                       <p className="font-medium text-light-text dark:text-dark-text">
@@ -441,7 +441,7 @@ const AdminAttendanceSettings = () => {
                     <div className="space-y-2 text-sm text-light-text dark:text-dark-text">
                       <p>
                         • Hours: {settings.halfDayHours || '_'} -{' '}
-                        {settings.totalWorkingHours || '_'} hrs
+                        7.5 hrs
                       </p>
                       <p>• Or Late Check-ins: {settings.maxLateCheckIns || '_'} times</p>
                       <ArrowRight className="w-4 h-4 text-light-text dark:text-dark-text opacity-50 my-1" />

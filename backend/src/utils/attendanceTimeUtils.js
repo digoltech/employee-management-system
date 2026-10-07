@@ -1,6 +1,14 @@
 export const DEFAULT_CHECK_IN_TIME = '09:30';
 export const DEFAULT_BREAK_START_TIME = '13:00';
 export const DEFAULT_BREAK_END_TIME = '14:00';
+export const FULL_DAY_MINUTES = 450;
+
+export const getWorkedDayStatus = (workingMinutes, minAbsentMinutes = 180) => {
+  const minutes = Number(workingMinutes || 0);
+  if (minutes < Number(minAbsentMinutes)) return 'absent';
+  if (minutes < FULL_DAY_MINUTES) return 'half-day';
+  return 'full-day';
+};
 
 const timeToMinutes = (time, fallback) => {
   const [hours = 0, minutes = 0] = String(time || fallback)

@@ -54,7 +54,7 @@ const CheckedInEmployees = ({ selectedDate }) => {
           emp.hasCheckInPunch &&
           !emp.hasCheckOutPunch &&
           !['leave', 'holiday'].includes(emp.resolvedStatus)
-      );
+      ).map(emp => ({ ...emp, fetchedAt: Date.now() }));
 
       setCheckedInList(checkedIn);
     } catch (error) {
@@ -68,6 +68,8 @@ const CheckedInEmployees = ({ selectedDate }) => {
   useEffect(() => {
     if (selectedDate) {
       fetchCheckedInList();
+      const refreshId = setInterval(fetchCheckedInList, 30000);
+      return () => clearInterval(refreshId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate]);
@@ -81,33 +83,17 @@ const CheckedInEmployees = ({ selectedDate }) => {
   }, []);
 
   const getRemainingToPresentSeconds = employee => {
-    const threshold = Number(employee.fullDayThresholdMinutes || 470);
-    if (!employee.originalCheckInTime || employee.originalCheckInTime === 'N/A') {
-      return threshold * 60;
-    }
-
-    const checkInMs = new Date(employee.originalCheckInTime).getTime();
-    if (Number.isNaN(checkInMs)) {
-      return Number(employee.remainingToPresentMinutes || threshold) * 60;
-    }
-
-    const elapsedSeconds = Math.max(Math.floor((now - checkInMs) / 1000), 0);
-    return Math.max(threshold * 60 - elapsedSeconds, 0);
+    const threshold = Number(employee.fullDayThresholdMinutes || 450);
+    const remainingMinutes = Number(employee.remainingToPresentMinutes ?? threshold);
+    const elapsedSeconds = Math.max(Math.floor((now - employee.fetchedAt) / 1000), 0);
+    return Math.max(remainingMinutes * 60 - elapsedSeconds, 0);
   };
 
   const getRemainingToHalfSeconds = employee => {
     const threshold = Number(employee.halfDayThresholdMinutes || employee.halfDayThreshold || 240);
-    if (!employee.originalCheckInTime || employee.originalCheckInTime === 'N/A') {
-      return threshold * 60;
-    }
-
-    const checkInMs = new Date(employee.originalCheckInTime).getTime();
-    if (Number.isNaN(checkInMs)) {
-      return Number(employee.remainingToHalfMinutes || threshold) * 60;
-    }
-
-    const elapsedSeconds = Math.max(Math.floor((now - checkInMs) / 1000), 0);
-    return Math.max(threshold * 60 - elapsedSeconds, 0);
+    const remainingMinutes = Math.max(threshold - Number(employee.totalWorkTime || 0), 0);
+    const elapsedSeconds = Math.max(Math.floor((now - employee.fetchedAt) / 1000), 0);
+    return Math.max(remainingMinutes * 60 - elapsedSeconds, 0);
   };
 
   const formatRemainingStatus = employee => {

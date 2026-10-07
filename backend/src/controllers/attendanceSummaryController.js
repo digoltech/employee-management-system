@@ -16,7 +16,7 @@ import {
   getEmployeeHolidayDateSet,
   getEmployeesOnHoliday,
 } from '../services/holidayPayrollService.js';
-import { calculateWorkingMinutes } from '../utils/attendanceTimeUtils.js';
+import { calculateWorkingMinutes, FULL_DAY_MINUTES, getWorkedDayStatus } from '../utils/attendanceTimeUtils.js';
 
 const getResolvedPayrollStatus = (attendance, settings) => {
   if (!attendance) return 'absent';
@@ -28,11 +28,8 @@ const getResolvedPayrollStatus = (attendance, settings) => {
 
   const workingMinutes = Number(attendance.totalWorkingTime || 0);
   const minAbsentHours = Number(settings?.minAbsentHours || 180);
-  const fullDayHours = Number(settings?.fullDayHours || 470);
 
-  if (workingMinutes < minAbsentHours) return 'absent';
-  if (workingMinutes < fullDayHours) return 'half-day';
-  return 'full-day';
+  return getWorkedDayStatus(workingMinutes, minAbsentHours);
 };
 
 // Get Daily Attendance
@@ -96,7 +93,7 @@ export const getDailyAttendance = async (req, res) => {
       },
     ]);
 
-    const fullDayThresholdMinutes = Number(settings?.fullDayHours || 470);
+    const fullDayThresholdMinutes = FULL_DAY_MINUTES;
     const halfDayThresholdMinutes = Number(settings?.halfDayHours || 240);
     const minAbsentHours = Number(settings?.minAbsentHours || 180);
 
@@ -280,7 +277,6 @@ export const getMonthlyAttendance = async (req, res) => {
         // Compute resolved status using same logic as getDailyAttendance
         const workingMinutes = Number(record.totalWorkingTime || 0);
         const minAbsentHours = Number(settings?.minAbsentHours || 180);
-        const fullDayHours = Number(settings?.fullDayHours || 470);
 
         const empKey = String(record.employee?._id || '');
         const dateKey = getIstDayKey(new Date(record.date));
@@ -299,12 +295,8 @@ export const getMonthlyAttendance = async (req, res) => {
           resolvedStatus = 'half-day';
         } else if (record.manualPayrollStatus === 'full-day') {
           resolvedStatus = 'full-day';
-        } else if (workingMinutes < minAbsentHours) {
-          resolvedStatus = 'absent';
-        } else if (workingMinutes < fullDayHours) {
-          resolvedStatus = 'half-day';
         } else {
-          resolvedStatus = 'full-day';
+          resolvedStatus = getWorkedDayStatus(workingMinutes, minAbsentHours);
         }
 
         return {

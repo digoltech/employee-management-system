@@ -29,7 +29,7 @@ router.get('/', verifyToken, checkRole(['admin']), getPayrolls);
 router.get('/employee/:employeeId', verifyToken, getPayrollByEmployee);
 
 // Get payroll payslip HTML
-router.get('/payslip/:payrollId', verifyToken, getPayrollPayslipHtml);
+router.get('/payslip/:payrollId', verifyToken, checkRole(['admin']), getPayrollPayslipHtml);
 
 // Get payroll history
 router.get('/history', verifyToken, checkRole(['admin']), getPayrollHistory);

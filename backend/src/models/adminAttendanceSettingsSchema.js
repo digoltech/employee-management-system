@@ -15,7 +15,7 @@ const AdminAttendanceSettingsSchema = new mongoose.Schema(
     fullDayHours: {
       type: Number,
       required: true,
-      default: 470, // If employee works >= this many minutes, it's a full-day
+      default: 450, // Full-day payroll credit starts at 7 hours 30 minutes
     },
     halfDayHours: {
       type: Number,

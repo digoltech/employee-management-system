@@ -874,7 +874,7 @@ const AdminSalaryManagement = () => {
       overtimeAmount +
       extraAmount +
       leaveEncashmentAmount;
-    const netPay = grossPay - penalties - loanAmount;
+    const netPay = grossPay - penalties - loanAmount - Number(payroll?.professionalTax || 0);
 
     return Number.isFinite(netPay) ? netPay : 0;
   };
@@ -1659,7 +1659,7 @@ const AdminSalaryManagement = () => {
     syncLatest();
 
     //}, [selectedEmployee?._id, month, year, payrolls.length]);
-  }, [selectedEmployee?._id, month, year, payrolls, previewPayrolls]);
+  }, [selectedEmployee?._id, month, year, payrolls, previewPayrolls, extraAllowances]);
   useEffect(() => {
     if (settingsPanel !== 'extras') {
       setExtraDetails(null);
@@ -1792,7 +1792,7 @@ const AdminSalaryManagement = () => {
           overtimeHours: derivedOvertimeHours,
           penalties: derivedPenalties,
           loanAmount: derivedLoanAmount,
-          extraAmount: Number(formState.extraAmount || derivedExtraAmount || 0),
+          extraAmount: Number(formState.extraAmount ?? derivedExtraAmount ?? 0),
           netPay: formState.netPay === '' ? undefined : Number(formState.netPay || 0),
           status: formState.status,
         }),
@@ -1814,7 +1814,7 @@ const AdminSalaryManagement = () => {
     }
   };
 
-  const generatePayslip = async () => {
+  const generatePayslip = async (format = 'compact') => {
     const payrollId = selectedEmployee?.payroll?._id;
     if (!payrollId) {
       toast.error('Process payroll before generating payslip.');
@@ -1822,7 +1822,7 @@ const AdminSalaryManagement = () => {
     }
 
     try {
-      const response = await fetch(`${BASE_URL}/payroll/payslip/${payrollId}`, {
+      const response = await fetch(`${BASE_URL}/payroll/payslip/${payrollId}?format=${format}`, {
         headers: authHeaders,
       });
       if (!response.ok) throw new Error('Failed to generate payslip.');
@@ -2061,7 +2061,8 @@ const AdminSalaryManagement = () => {
       leaveEncashmentAmount;
     const manualPenalty = Number(formState.penalties || 0);
     const manualLoanAmount = Number(formState.loanAmount || 0);
-    const deductions = manualPenalty + manualLoanAmount + unpaidDays * dailyWage;
+    const professionalTax = Number(payroll?.professionalTax || 0);
+    const deductions = manualPenalty + manualLoanAmount + professionalTax;
     const calculatedNetSalary = grossPay - deductions;
     const totalSalary =
       formState.netPay === '' || formState.netPay === null
@@ -2459,12 +2460,9 @@ const AdminSalaryManagement = () => {
                 <span>Extras</span>
                 <span>+ ₹{extraAmount.toFixed(2)}</span>
               </div>
-              <div className="flex items-center justify-between gap-4 text-danger">
-                <span>Unpaid days</span>
-                <span>
-                  {unpaidDays} x ₹{dailyWage.toFixed(2)} = - ₹
-                  {(unpaidDays * dailyWage).toFixed(2)}
-                </span>
+              <div className="flex items-center justify-between gap-4 text-light-text/60 dark:text-dark-text/60">
+                <span>Unpaid days (excluded from earnings)</span>
+                <span>{unpaidDays}</span>
               </div>
               <div className="flex items-center justify-between gap-4 text-danger">
                 <span>Penalties + loan/advance</span>
@@ -2472,6 +2470,12 @@ const AdminSalaryManagement = () => {
                   - ₹{manualPenalty.toFixed(2)} - ₹{manualLoanAmount.toFixed(2)}
                 </span>
               </div>
+              {professionalTax > 0 && (
+                <div className="flex items-center justify-between gap-4 text-danger">
+                  <span>Professional tax</span>
+                  <span>- ₹{professionalTax.toFixed(2)}</span>
+                </div>
+              )}
             </div>
             <div className="flex items-center justify-between font-semibold">
               <span>Calculated Net Salary</span>
@@ -2504,13 +2508,20 @@ const AdminSalaryManagement = () => {
               ⏳ Payroll unlocks after {selectedMonthLabel} {year} ends.
             </p>
           ) : null}
-          <div className="grid grid-cols-2 gap-3 mt-1">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-1">
             <button
-              onClick={generatePayslip}
+              onClick={() => generatePayslip()}
               className="inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-white dark:bg-dark-card border border-light-border dark:border-dark-border text-sm font-semibold hover:bg-light-bg/50 dark:hover:bg-dark-bg/50 transition-colors shadow-sm"
             >
               <FileSpreadsheet className="w-4 h-4" />
               Generate Payslip
+            </button>
+            <button
+              onClick={() => generatePayslip('full')}
+              className="inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-white dark:bg-dark-card border border-light-border dark:border-dark-border text-sm font-semibold hover:bg-light-bg/50 dark:hover:bg-dark-bg/50 transition-colors shadow-sm"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              Generate Full Payslip
             </button>
             <button
               onClick={downloadPayslipPdf}

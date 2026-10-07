@@ -7,6 +7,8 @@ import { getIstDayKey, getIstDayOfWeek, getIstDayStartFromParts } from '../utils
 import { getEmployeesOnHoliday } from '../services/holidayPayrollService.js';
 import {
   DEFAULT_CHECK_IN_TIME,
+  FULL_DAY_MINUTES,
+  getWorkedDayStatus,
   getFullDayCheckoutTime,
   getTimeOnDay,
 } from '../utils/attendanceTimeUtils.js';
@@ -33,15 +35,8 @@ const calculateStatusFromWorkingHours = (attendance, settings) => {
 
   const workingMinutes = attendance.totalWorkingTime || 0;
   const minAbsentHours = settings?.minAbsentHours || 180;
-  const fullDayHours = settings?.fullDayHours || 470;
 
-  if (workingMinutes < minAbsentHours) {
-    return 'absent';
-  } else if (workingMinutes < fullDayHours) {
-    return 'half-day';
-  } else {
-    return 'full-day';
-  }
+  return getWorkedDayStatus(workingMinutes, minAbsentHours);
 };
 
 export const getAttendanceMaster = async (req, res) => {
@@ -304,11 +299,11 @@ export const updateAttendanceMasterStatus = async (req, res) => {
       attendance.checkOutTime = getFullDayCheckoutTime({
         dayStart,
         checkInTime: checkInBase,
-        totalWorkingMinutes: settings?.totalWorkingHours || 8 * 60,
+        totalWorkingMinutes: FULL_DAY_MINUTES,
         breakStartTime: settings?.breakStartTime,
         breakEndTime: settings?.breakEndTime,
       });
-      attendance.totalWorkingTime = settings?.totalWorkingHours || 8 * 60;
+      attendance.totalWorkingTime = FULL_DAY_MINUTES;
     } else if (status === 'half-day') {
       attendance.checkInTime = checkInBase;
       attendance.checkOutTime = getFullDayCheckoutTime({

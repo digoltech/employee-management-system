@@ -5,6 +5,7 @@ import PayrollSettings from '../models/payrollSettingsSchema.js';
 import EmployeeMasterOptions from '../models/employeeMasterOptionsSchema.js';
 import bcrypt from 'bcrypt';
 import { getDefaultPayslipSettings } from '../utils/payslipUtils.js';
+import { FULL_DAY_MINUTES } from '../utils/attendanceTimeUtils.js';
 
 const timeToMinutes = (time) => {
   if (!time) return null;
@@ -118,6 +119,9 @@ export const getAttendanceSettings = async (req, res) => {
     if (!settings) {
       settings = new AdminAttendanceSettings();
       await settings.save();
+    } else if (settings.fullDayHours !== FULL_DAY_MINUTES) {
+      settings.fullDayHours = FULL_DAY_MINUTES;
+      await settings.save();
     }
 
     res.status(200).json({ message: 'Attendance settings fetched successfully', settings });
@@ -144,6 +148,7 @@ export const updateAttendanceSettings = async (req, res) => {
     if (!settings) {
       settings = new AdminAttendanceSettings();
     }
+    settings.fullDayHours = FULL_DAY_MINUTES;
 
     // Directly save the received values (already in minutes)
     if (lateByMinutes !== undefined) settings.lateByMinutes = lateByMinutes;

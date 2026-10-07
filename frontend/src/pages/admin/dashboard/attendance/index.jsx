@@ -81,16 +81,10 @@ const AdminAttendance = () => {
 
         const minAbsent = Number(rec.minAbsentHours || 180);
         const halfDayThreshold = Number(rec.halfDayThresholdMinutes || rec.halfDayThreshold || 240);
-        const fullDay = Number(rec.fullDayThresholdMinutes || 470);
+        const fullDay = Number(rec.fullDayThresholdMinutes || 450);
 
         // Calculate working minutes (use live elapsed if currently checked-in)
         let workingMinutes = Number(rec.totalWorkTime || 0);
-        if (rec.hasCheckInPunch && rec.originalCheckInTime && rec.originalCheckInTime !== 'N/A') {
-          const elapsed = Math.floor(
-            (currentTime.getTime() - new Date(rec.originalCheckInTime).getTime()) / 60000
-          );
-          workingMinutes = Math.max(elapsed, workingMinutes);
-        }
 
         // Thresholds take precedence for Half Day / Full Day
         if (workingMinutes >= fullDay) return 'Present';

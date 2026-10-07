@@ -289,7 +289,7 @@ const AdminPayroll = () => {
     }
   };
 
-  const generatePayslip = async () => {
+  const generatePayslip = async (format = 'compact') => {
     const payrollId = selectedEmployee?.payroll?._id;
     if (!payrollId) {
       toast.error('Process payroll before generating payslip.');
@@ -297,7 +297,7 @@ const AdminPayroll = () => {
     }
 
     try {
-      const response = await fetch(`${BASE_URL}/payroll/payslip/${payrollId}`, {
+      const response = await fetch(`${BASE_URL}/payroll/payslip/${payrollId}?format=${format}`, {
         headers: authHeaders,
       });
       if (!response.ok) throw new Error('Failed to generate payslip.');
@@ -356,8 +356,14 @@ const AdminPayroll = () => {
           const absentDeduction = Number(panelDeductions.absent || 0);
           const manualPenalty = Number(payroll?.penalties || 0);
           const professionalTax = Number(payroll?.professionalTax || 0);
-          const totalPenalty =
-            lateCheckinDeduction + halfDayDeduction + absentDeduction + manualPenalty;
+          const loanAmount = Number(payroll?.loanAmount || 0);
+          const dailyWage = Number(payroll?.dailyWage || 0);
+          const earnedBase =
+            (Number(payroll?.fullDays || 0) + Number(payroll?.halfDays || 0) * 0.5) * dailyWage;
+          const paidLeavePay = Number(payroll?.paidLeaves || 0) * dailyWage;
+          const leaveEncashment = Number(payroll?.leaveEncashmentAmount || 0);
+          const grossPay = earnedBase + paidLeavePay + overtimeAmount + extraAmount + leaveEncashment;
+          const totalDeductions = manualPenalty + loanAmount + professionalTax;
 
           return (
             <>
@@ -422,31 +428,35 @@ const AdminPayroll = () => {
 
               <div className="rounded-2xl border border-light-border/70 dark:border-dark-border/70 p-4 space-y-2">
                 <p className="text-xs uppercase tracking-[0.12em] text-light-text/60 dark:text-dark-text/60">
-                  Penalty Summary
+                  Attendance Impact and Payroll Deductions
                 </p>
                 <div className="flex items-center justify-between text-sm">
-                  <span>Late Check-in Deduction</span>
+                  <span>Late Check-in Reference (included in penalties)</span>
                   <span>₹{lateCheckinDeduction.toFixed(2)}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span>Half Day Deduction</span>
+                  <span>Half Day Impact (already in earned pay)</span>
                   <span>₹{halfDayDeduction.toFixed(2)}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span>Absent Day Deduction</span>
+                  <span>Absent Day Impact (already in earned pay)</span>
                   <span>₹{absentDeduction.toFixed(2)}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span>Manual Penalties</span>
+                  <span>Penalties</span>
                   <span>₹{manualPenalty.toFixed(2)}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span>Loan / Advance</span>
+                  <span>₹{loanAmount.toFixed(2)}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span>Professional Tax</span>
                   <span>₹{professionalTax.toFixed(2)}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span>Total Penalty</span>
-                  <span>₹{totalPenalty.toFixed(2)}</span>
+                  <span>Total Deductions</span>
+                  <span>₹{totalDeductions.toFixed(2)}</span>
                 </div>
               </div>
 
@@ -522,17 +532,14 @@ const AdminPayroll = () => {
                   </div>
                 ) : null}
                 <div className="flex items-center justify-between text-sm">
-                  <span>Base Salary</span>
-                  <span>₹{selectedEmployee?.payroll?.baseSalary?.toFixed(2) || '0.00'}</span>
+                  <span>Base Salary (Worked Days)</span>
+                  <span>₹{earnedBase.toFixed(2)}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span>Bonuses</span>
                   <span>
                     ₹
-                    {(
-                      Number(selectedEmployee?.payroll?.overtimeAmount || 0) +
-                      Number(selectedEmployee?.payroll?.extraAmount || 0)
-                    ).toFixed(2)}
+                    {(overtimeAmount + extraAmount + leaveEncashment).toFixed(2)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
@@ -544,32 +551,18 @@ const AdminPayroll = () => {
                   <span>₹{Number(selectedEmployee?.payroll?.extraAmount || 0).toFixed(2)}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
+                  <span>Gross Pay</span>
+                  <span>₹{grossPay.toFixed(2)}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
                   <span>Deductions</span>
-                  <span>
-                    ₹
-                    {(
-                      Number(panelDeductions.lateCheckin || 0) +
-                      Number(panelDeductions.halfDay || 0) +
-                      Number(panelDeductions.absent || 0) +
-                      Number(selectedEmployee?.payroll?.penalties || 0) +
-                      Number(selectedEmployee?.payroll?.loanAmount || 0)
-                    ).toFixed(2)}
-                  </span>
+                  <span>₹{totalDeductions.toFixed(2)}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span>Total Salary</span>
                   <span className="font-semibold">
                     ₹
-                    {(
-                      Number(selectedEmployee?.payroll?.baseSalary || 0) +
-                      Number(selectedEmployee?.payroll?.overtimeAmount || 0) +
-                      Number(selectedEmployee?.payroll?.extraAmount || 0) -
-                      (Number(panelDeductions.lateCheckin || 0) +
-                        Number(panelDeductions.halfDay || 0) +
-                        Number(panelDeductions.absent || 0) +
-                        Number(selectedEmployee?.payroll?.penalties || 0) +
-                        Number(selectedEmployee?.payroll?.loanAmount || 0))
-                    ).toFixed(2)}
+                    {Number(selectedEmployee?.payroll?.totalSalary || 0).toFixed(2)}
                   </span>
                 </div>
               </div>
@@ -598,11 +591,18 @@ const AdminPayroll = () => {
           </p>
         ) : null}
         <button
-          onClick={generatePayslip}
+          onClick={() => generatePayslip()}
           className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-light-bg dark:bg-dark-bg border border-light-border dark:border-dark-border"
         >
           <FileSpreadsheetIcon className="w-4 h-4" />
           Generate Payslip
+        </button>
+        <button
+          onClick={() => generatePayslip('full')}
+          className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-light-bg dark:bg-dark-bg border border-light-border dark:border-dark-border"
+        >
+          <FileSpreadsheetIcon className="w-4 h-4" />
+          Generate Full Payslip
         </button>
       </div>
     </div>

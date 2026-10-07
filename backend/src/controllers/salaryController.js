@@ -211,7 +211,9 @@ export const generatePayslip = async (req, res) => {
         salaryYear: payslipYear,
       });
     } else if (baseSalary !== undefined || bonuses !== undefined || deductions !== undefined) {
+      salary.payrollBreakdown = undefined;
       salary.baseSalary = normalized.baseSalary || salary.baseSalary;
+      if (baseSalary !== undefined) salary.contractBaseSalary = salary.baseSalary;
       salary.bonuses =
         baseSalary !== undefined || bonuses !== undefined ? normalized.bonuses : salary.bonuses;
       salary.deductions =
@@ -437,9 +439,15 @@ export const updateSalary = async (req, res) => {
       return res.status(400).json({ message: firstError });
     }
 
-    if (parsedBase.value !== undefined) salary.baseSalary = parsedBase.value;
+    if (parsedBase.value !== undefined) {
+      salary.baseSalary = parsedBase.value;
+      salary.contractBaseSalary = parsedBase.value;
+    }
     if (parsedBonuses.value !== undefined) salary.bonuses = parsedBonuses.value;
     if (parsedDeductions.value !== undefined) salary.deductions = parsedDeductions.value;
+    if (parsedBase.value !== undefined || parsedBonuses.value !== undefined || parsedDeductions.value !== undefined) {
+      salary.payrollBreakdown = undefined;
+    }
     if (parsedEffectiveFrom.value !== undefined) salary.effectiveFrom = parsedEffectiveFrom.value;
     if (parsedReason.value !== undefined) salary.revisionReason = parsedReason.value;
     salary.totalSalary = salary.baseSalary + salary.bonuses - salary.deductions;

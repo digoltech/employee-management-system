@@ -12,6 +12,7 @@ import {
   getTimeOnDay,
   DEFAULT_BREAK_START_TIME,
   DEFAULT_BREAK_END_TIME,
+  getWorkedDayStatus,
   getScheduledBreakDuration,
 } from '../utils/attendanceTimeUtils.js';
 
@@ -403,16 +404,8 @@ export const checkOut = async (req, res) => {
     });
     attendance.totalWorkingTime = totalWorkingTimeInMinutes; // Save total working time in minutes to database
 
-    // Fetch half-day threshold from Admin Attendance Settings
-    const halfDayThreshold = settings?.halfDayHours || 300; // Default to 300 minutes if not set
-
-    // If total working time is less than the required full-time hours but more than half-day threshold, mark it as a half-day
-    if (
-      totalWorkingTimeInMinutes < (settings?.totalWorkingHours || 480) &&
-      totalWorkingTimeInMinutes > halfDayThreshold
-    ) {
-      attendance.halfDay = true;
-    }
+    attendance.halfDay =
+      getWorkedDayStatus(totalWorkingTimeInMinutes, settings?.minAbsentHours ?? 180) === 'half-day';
 
     await attendance.save();
 
